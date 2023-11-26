@@ -1,0 +1,98 @@
+
+(rules PCB SharpKeyQ
+  (snap_angle 
+    fortyfive_degree
+  )
+  (autoroute_settings
+    (fanout off)
+    (autoroute on)
+    (postroute on)
+    (vias on)
+    (via_costs 50)
+    (plane_via_costs 5)
+    (start_ripup_costs 100)
+    (start_pass_no 4)
+    (layer_rule F.Cu
+      (active on)
+      (preferred_direction horizontal)
+      (preferred_direction_trace_costs 1.0)
+      (against_preferred_direction_trace_costs 2.5)
+    )
+    (layer_rule B.Cu
+      (active on)
+      (preferred_direction vertical)
+      (preferred_direction_trace_costs 1.0)
+      (against_preferred_direction_trace_costs 1.7)
+    )
+  )
+  (rule
+    (width 250.0)
+    (clear 200.0)
+    (clear 125.0 (type smd_to_turn_gap))
+    (clear 50.0 (type smd-smd))
+  )
+  (padstack "Via[0-1]_800:400_um"
+    (shape
+      (circle F.Cu 800.0 0.0 0.0)
+    )
+    (shape
+      (circle B.Cu 800.0 0.0 0.0)
+    )
+    (attach off)
+  )
+  (via 
+    "Via[0-1]_800:400_um" "Via[0-1]_800:400_um" default
+  )
+  (via 
+    "Via[0-1]_800:400_um-kicad_default" "Via[0-1]_800:400_um" "kicad_default"
+  )
+  (via 
+    "Via[0-1]_800:400_um-Power" "Via[0-1]_800:400_um" Power
+  )
+  (via_rule
+    default "Via[0-1]_800:400_um"
+  )
+  (via_rule
+    "kicad_default" "Via[0-1]_800:400_um-kicad_default"
+  )
+  (via_rule
+    Power "Via[0-1]_800:400_um-Power"
+  )
+  (class default
+    (clearance_class default)
+    (via_rule default)
+    (rule
+      (width 250.0)
+    )
+    (circuit 
+      (use_layer F.Cu B.Cu)
+    )
+  )
+  (class "kicad_default"
+    GND "Net-(D2-A)" "Net-(J2-Pin_2)" "Net-(U1-32K_XN{slash}GPIO33{slash}ADC1_CH5)" "Net-(U1-32K_XP{slash}GPIO32{slash}ADC1_CH4)" "Net-(U1-VDET_1{slash}GPIO34{slash}ADC1_CH6)" "Net-(U1-VDET_2{slash}GPIO35{slash}ADC1_CH7)" "Net-(U1-MTDI{slash}GPIO12{slash}ADC2_CH5)"
+    "Net-(U1-ADC2_CH7{slash}GPIO27)" "Net-(U1-DAC_1{slash}ADC2_CH8{slash}GPIO25)" "Net-(U1-MTCK{slash}GPIO13{slash}ADC2_CH4)" "Net-(U1-DAC_2{slash}ADC2_CH9{slash}GPIO26)" "Net-(U1-GPIO23)" "Net-(U1-ADC2_CH2{slash}GPIO2)" "unconnected-(U1-CHIP_PU-Pad2)" "unconnected-(U1-SENSOR_VP{slash}GPIO36{slash}ADC1_CH0-Pad3)"
+    "unconnected-(U1-SENSOR_VN{slash}GPIO39{slash}ADC1_CH3-Pad4)" "Net-(U1-MTMS{slash}GPIO14{slash}ADC2_CH6)" "unconnected-(U1-SD_DATA2{slash}GPIO9-Pad16)" "unconnected-(U1-SD_DATA3{slash}GPIO10-Pad17)" "unconnected-(U1-CMD-Pad18)" "unconnected-(U1-SD_CLK{slash}GPIO6-Pad20)" "unconnected-(U1-SD_DATA0{slash}GPIO7-Pad21)" "unconnected-(U1-SD_DATA1{slash}GPIO8-Pad22)"
+    "Net-(U1-MTDO{slash}GPIO15{slash}ADC2_CH3)" "unconnected-(U1-GPIO0{slash}BOOT{slash}ADC2_CH1-Pad25)" "unconnected-(U1-ADC2_CH0{slash}GPIO4-Pad26)" "Net-(U1-GPIO16)" "Net-(U1-GPIO17)" "unconnected-(U1-GPIO5-Pad29)" "Net-(U1-GPIO18)" "Net-(U1-GPIO19)"
+    "Net-(U1-GPIO21)" "unconnected-(U1-U0RXD{slash}GPIO3-Pad34)" "unconnected-(U1-U0TXD{slash}GPIO1-Pad35)" "Net-(U1-GPIO22)" "Net-(JP1-A)" "unconnected-(J1-Pad2)" "Net-(J2-Pin_3)" "Net-(J4-Pin_2)"
+    "Net-(J4-Pin_3)" "Net-(J4-Pin_4)" "Net-(J4-Pin_5)" "Net-(J4-Pin_6)" "Net-(J4-Pin_7)" "Net-(J4-Pin_8)" "unconnected-(J4-Pin_10-Pad10)"
+    (clearance_class "kicad_default")
+    (via_rule "kicad_default")
+    (rule
+      (width 250.0)
+    )
+    (circuit 
+      (use_layer F.Cu B.Cu)
+    )
+  )
+  (class Power
+    +5V "Net-(D1-A)" +3V3
+    (clearance_class Power)
+    (via_rule Power)
+    (rule
+      (width 1000.0)
+    )
+    (circuit 
+      (use_layer F.Cu B.Cu)
+    )
+  )
+)
