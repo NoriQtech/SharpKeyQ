@@ -19,7 +19,7 @@ SharpKey Multi HID Interface のオリジナルプロジェクトについては
 
 プロジェクトの詳細は下記を参照してください。
 
-[JubkQ yard SharpKeyQ](https://junkqyard.blogspot.com/p/sharpkeyq.html)
+[JunkQ yard SharpKeyQ](https://junkqyard.blogspot.com/p/sharpkeyq.html)
 
 
 ## ライセンス
