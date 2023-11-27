@@ -1,8 +1,8 @@
 ## はじめに
 このプロジェクトは、[engineers@work](https://eaw.app/) によって開発された SharpKey Multi HID Interface について、DIY用のPCB基板を設計し、動作/検証をする試みです。
 
-![SharpKeyQ PCB01](images/SharpKeyQ_PCB01.jpg)
-![SharpKeyQ PCB02](images/SharpKeyQ_PCB02.jpg)
+
+<img src="images/SharpKeyQ_PCB01.jpg" width="320">
 
 海外のコアな8BitレトロPCファンが日本のユニークな8Bitパソコンを使いこなすために、日夜、解析・研究を行い、今も新しいプロダクトを生み出していることに敬意を表します。
 
