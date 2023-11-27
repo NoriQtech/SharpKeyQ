@@ -20,7 +20,7 @@ SharpKey Multi HID Interface のオリジナルプロジェクトについては
 機能は全てオリジナルに準じます。
 また、回路図や基板デザインはDIY可能な設計に置き換えられています。
 
-プロジェクトの詳細は下記を参照してください。
+詳細は下記を参照してください。
 
 [JunkQ yard SharpKeyQ](https://junkqyard.blogspot.com/p/sharpkeyq.html)
 
