@@ -22,6 +22,7 @@
 // History:         Apr 2022 - Initial framework, waiting on arrival of real machine to progress further.
 //            v1.01 Jun 2022 - Updates to reflect changes realised in other modules due to addition of
 //                             bluetooth and suspend logic due to NVS issues using both cores.
+//            v1.02 Feb 2024 - Updated to actually work by NoriQ.
 //
 // Notes:           See Makefile to enable/disable conditional components
 //
@@ -73,7 +74,24 @@ static QueueHandle_t            xmitQueue;
 // MZ-5600/MZ-6500 Protocol
 // ------------------------
 //
-
+// The MZ-5600 uses 4-wire serial communication.
+//
+// Protocol:
+//  signal name : 
+//  /DC : CPU -> KB  send data
+//  /STC : CPU -> KB  strobe
+//  /DK : KB -> CPU  send data
+//  /SRK : KB -> CPU  request to receive(CPU)
+//  /DK and /SRK are open collector outputs.
+//
+//  KEYBOARD -> CPU
+//   Set /SRK to LOW to start interrupt.
+//   A strobe signal is output to /STC.
+//   Output Extension
+//   Output key data Bit[7:0] to /DK.
+//   Outputs parity bit to /DK.
+//     <E.B><D7><D6><D5><D4><D3><D2><D1><D0><P.B>
+//
 
 // Function to push a keycode onto the key queue ready for transmission.
 //
@@ -91,6 +109,36 @@ void MZ5665::pushKeyToQueue(uint32_t key)
     return;
 }
 
+
+bool MZ5665::waitSignal(uint32_t mask, bool val, uint64_t timeout)
+{
+//    ESP_LOGW(MAINTAG, "waitSignal:%08x", mask);
+    bool        result = false;
+    uint64_t    curTime = 0LL;
+
+    ESP_ERROR_CHECK(timer_set_counter_value(TIMER_GROUP_0, TIMER_0, 0));
+    timer_start(TIMER_GROUP_0, TIMER_0);
+
+    for(;;)
+    {
+        timer_get_counter_value(TIMER_GROUP_0, TIMER_0, &curTime);
+        // time out
+        if(curTime >= timeout)
+        {
+            break;
+        }
+        // match
+        if(((REG_READ(GPIO_IN_REG) & mask) != 0 ? true : false) == val)
+        {
+            result = true;
+            break;
+        }
+    }
+
+    timer_pause(TIMER_GROUP_0, TIMER_0);
+    return result;
+}
+
 // Method to realise the MZ-5600/MZ-6500 4 wire serial protocol in order to transmit key presses to the
 // MZ-5600/MZ-6500.
 // This method uses Core 1 and it will hold it in a spinlock as necessary to ensure accurate timing.
@@ -98,23 +146,31 @@ void MZ5665::pushKeyToQueue(uint32_t key)
 IRAM_ATTR void MZ5665::mzInterface( void * pvParameters )
 {
     // Locals.
-    //t_xmitQueueMessage  rcvMsg;
+    t_xmitQueueMessage  rcvMsg;
 
     // Mask values declared as variables, let the optimiser decide wether they are constants or placed in-memory.
-//    uint32_t            X1DATA_MASK  = (1 << CONFIG_HOST_KDO0);
-    //uint64_t            delayTimer = 0LL;
-    //uint64_t            curTime    = 0LL;
-    //bool                bitStart = true;
-    //uint32_t            bitCount = 0;
-    //enum XMITSTATE {
-    //                    FSM_IDLE        = 0,
-    //                    FSM_STARTXMIT   = 1,
-    //                    FSM_HEADER      = 2,
-    //                    FSM_START       = 3,
-    //                    FSM_DATA        = 4,
-    //                    FSM_STOP        = 5,
-    //                    FSM_ENDXMIT     = 6
-    //}                   state = FSM_IDLE;
+    uint32_t           	MZ56DC_MASK = (1 << CONFIG_HOST_KDB2);
+    uint32_t           	MZ56STC_MASK = (1 << CONFIG_HOST_KDB1);
+    uint32_t           	MZ56DK_MASK = (1 << CONFIG_HOST_KDB0);
+    uint32_t           	MZ56SRK_MASK = (1 << CONFIG_HOST_KDB3);
+    uint64_t            delayTimer = 0LL;
+    uint64_t            curTime    = 0LL;
+    bool                bitPulse = true;
+    uint32_t            bitCount = 0;
+    bool                bitParity = false;
+    enum SYNSTATE {
+        SYN_BOOTINIT,
+        SYN_IDLE,
+        SYN_STARTXMIT,
+        SYN_SENDKEY,
+        SYN_SENDEB,
+        SYN_SENDBIT,
+        SYN_SENDPB,
+        SYN_ENDXMIT,
+        SYN_ERRCHK,
+        SYN_RCVCOM,
+        SYN_RESET
+    } state = SYN_BOOTINIT;
 
     // Retrieve pointer to object in order to access data.
     MZ5665* pThis = (MZ5665*)pvParameters;
@@ -128,175 +184,260 @@ IRAM_ATTR void MZ5665::mzInterface( void * pvParameters )
     // Sign on.
     ESP_LOGW(MAINTAG, "Starting MZ-6500 thread.");
 
-//    // X1 data out default state is high.
-//    GPIO.out_w1ts = X1DATA_MASK;
-//
-//    // Configure a timer to be used for X1 protocol spacing with 1uS resolution. The default clock source is the APB running at 80MHz.
-//    timer_config_t timerConfig = {
-//        .alarm_en    = TIMER_ALARM_DIS,            // No alarm, were not using interrupts as we are in a dedicated thread.
-//        .counter_en  = TIMER_PAUSE,                // Timer paused until required.
-//        .intr_type   = TIMER_INTR_LEVEL,           // No interrupts used.
-//        .counter_dir = TIMER_COUNT_UP,             // Timing a fixed period.
-//        .auto_reload = TIMER_AUTORELOAD_DIS,       // No need for auto reload, fixed time period.
-//        .divider     = 80                          // 1Mhz operation giving 1uS resolution.
-//    };
-//    ESP_ERROR_CHECK(timer_init(TIMER_GROUP_0, TIMER_0, &timerConfig));
-//    ESP_ERROR_CHECK(timer_set_counter_value(TIMER_GROUP_0, TIMER_0, 0));
-//
-//    // Permanent loop, wait for an incoming message on the key to send queue, read it then transmit to the X1, repeat!
-//    for(;;)
-//    {
-//        // Get the current timer value, only run the FSM when the timer is idle.
-//        timer_get_counter_value(TIMER_GROUP_0, TIMER_0, &curTime);
-//        if(curTime >= delayTimer)
-//        {
-//            // Ensure the timer is stopped.
-//            timer_pause(TIMER_GROUP_0, TIMER_0);
-//            delayTimer = 0LL;
-//
-//            // Finite state machine to retrieve a key for transmission then serialise it according to the X1 protocol.
-//            switch(state)
-//            {
-//                case FSM_IDLE:
-//                    // Yield if the suspend flag is set.
-//                    pThis->yield(0);
-//
-//                    // Check stack space, report if it is getting low.
-//                    if(uxTaskGetStackHighWaterMark(NULL) < 1024)
-//                    {
-//                        ESP_LOGW(MAINTAG, "THREAD STACK SPACE(%d)\n",uxTaskGetStackHighWaterMark(NULL));
-//                    }
-//
-//                    // If a new message arrives, start the serialiser to send it to the X1.
-//                    if(xQueueReceive(xmitQueue, (void *)&rcvMsg, 0) == pdTRUE)
-//                    {
-//                        ESP_LOGW(MAINTAG, "Received:%08x, %d", rcvMsg.keyCode, rcvMsg.modeB);
-//                        state = FSM_STARTXMIT; 
-//                   
-//                        // Create, initialise and hold a spinlock so the current core is bound to this one method.
-//                        portENTER_CRITICAL(&pThis->mzMutex);
-//                    }
-//                    break;
-//
-//                case FSM_STARTXMIT:
-//                    // Ensure all variables and states correct before entering serialisation.
-//                    bitStart = true;
-//                    GPIO.out_w1ts = X1DATA_MASK;
-//                    state = FSM_HEADER;
-//                    if(rcvMsg.modeB)
-//                        bitCount = 24;
-//                    else
-//                        bitCount = 16;
-//                    break;
-//
-//                case FSM_HEADER:
-//                    if(bitStart)
-//                    {
-//                        // Send out the header by bringing X1DATA low for 1000us then high for 700uS.
-//                        GPIO.out_w1tc = X1DATA_MASK;
-//                        delayTimer = pThis->mzCtrl.modeB ? 400LL : 1000LL;
-//                    } else
-//                    {
-//                        // Bring high for 700us.
-//                        GPIO.out_w1ts = X1DATA_MASK;
-//                        delayTimer = pThis->mzCtrl.modeB ? 200LL : 700LL;
-//                        state = FSM_DATA;  // Jump past the Start Bit, I think the header is the actual start bit as there is an error in the X1 Center specs.
-//                    }
-//                    bitStart = !bitStart;
-//                    break;
-//
-//                // The original X1 Center specification shows a start bit but this doesnt seem necessary, in fact it is interpreted as a data bit, hence the
-//                // FSM jumps this state.
-//                case FSM_START:
-//                    if(bitStart)
-//                    {
-//                        // Send out the start bit by bringing X1DATA low for 250us then high for 750uS.
-//                        GPIO.out_w1tc = X1DATA_MASK;
-//                        delayTimer = pThis->mzCtrl.modeB ? 250LL : 250LL;
-//                    } else
-//                    {
-//                        // Bring high for 750us.
-//                        GPIO.out_w1ts = X1DATA_MASK;
-//                        delayTimer = pThis->mzCtrl.modeB ? 250LL : 750LL;
-//                        state = FSM_DATA;
-//                    }
-//                    bitStart = !bitStart;
-//                    break;
-//
-//                case FSM_DATA:
-//                    if(bitCount > 0)
-//                    {
-//                        if(bitStart)
-//                        {
-//                            // Send out the data bit by bringing X1DATA low for 250us then high for 1750uS when bit = 1 else 750uS when bit = 0.
-//                            GPIO.out_w1tc = X1DATA_MASK;
-//                            delayTimer = 250LL;
-//                            delayTimer = pThis->mzCtrl.modeB ? 250LL : 250LL;
-//                        } else
-//                        {
-//                            // Bring X1DATA high...
-//                            GPIO.out_w1ts = X1DATA_MASK;
-//
-//                            // ... Mode A 1750us as bit = 1, mode B 750uS.
-//                            if((rcvMsg.modeB && rcvMsg.keyCode & 0x800000) || (!rcvMsg.modeB && rcvMsg.keyCode & 0x8000))
-//                            {
-//                                delayTimer = pThis->mzCtrl.modeB ? 750LL : 1750LL;
-//                            } else
-//                            // ... Mode A 750us as bit = 0, mode B 250uS.
-//                            {
-//                                delayTimer = pThis->mzCtrl.modeB ? 250LL : 750LL;
-//                            }
-//                            rcvMsg.keyCode = (rcvMsg.keyCode << 1);
-//                            bitCount--;
-//                        }
-//                        bitStart = !bitStart;
-//                    } else
-//                    {
-//                        state = FSM_STOP;
-//                    }
-//                    break;
-//
-//                case FSM_STOP:
-//                    if(bitStart)
-//                    {
-//                        // Send out the stop bit, same in Mode A and B, by bringing X1DATA low for 250us then high for 250uS.
-//                        GPIO.out_w1tc = X1DATA_MASK;
-//                        delayTimer = 250LL;
-//                        delayTimer = pThis->mzCtrl.modeB ? 250LL : 250LL;
-//                    } else
-//                    {
-//                        // Bring high for 250us.
-//                        GPIO.out_w1ts = X1DATA_MASK;
-//                        delayTimer = pThis->mzCtrl.modeB ? 250LL : 250LL;
-//                        state = FSM_ENDXMIT;
-//                    }
-//                    bitStart = !bitStart;
-//                    break;
-//
-//                case FSM_ENDXMIT:
-//                    // End of critical timing loop, release the core.
-//                    portEXIT_CRITICAL(&pThis->mzMutex);
-//                    state = FSM_IDLE;
-//                    break;
-//
-//            }
-//
-//            // If a new delay is requested, set the value into the timer and start.
-//            if(delayTimer > 0LL)
-//            {
-//                timer_set_counter_value(TIMER_GROUP_0, TIMER_0, 0LL);
-//                timer_start(TIMER_GROUP_0, TIMER_0);
-//            }
-//        }
-//
-//        // Logic to feed the watchdog if needed. Watchdog disabled in menuconfig but if enabled this will need to be used.
-//        //TIMERG0.wdt_wprotect=TIMG_WDT_WKEY_VALUE; // write enable
-//        //TIMERG0.wdt_feed=1;                       // feed dog
-//        //TIMERG0.wdt_wprotect=0;                   // write protect
-//        //TIMERG1.wdt_wprotect=TIMG_WDT_WKEY_VALUE; // write enable
-//        //TIMERG1.wdt_feed=1;                       // feed dog
-//        //TIMERG1.wdt_wprotect=0;                   // write protect
-//    }
+
+    // init gpio
+    gpio_config_t     ioConf;
+    ioConf.intr_type    = GPIO_INTR_DISABLE;
+    ioConf.mode         = GPIO_MODE_INPUT; 
+    ioConf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    ioConf.pull_up_en   = GPIO_PULLUP_ENABLE;
+    ioConf.pin_bit_mask = (1ULL<<CONFIG_HOST_KDB2);   // DC 
+    gpio_config(&ioConf);
+    ioConf.pin_bit_mask = (1ULL<<CONFIG_HOST_KDB1);   // STC
+    gpio_config(&ioConf);
+
+    // /DK, /SRK pin is open drain
+    ioConf.pull_up_en   = GPIO_PULLUP_DISABLE;
+    ioConf.mode         = GPIO_MODE_OUTPUT_OD; 
+    ioConf.pin_bit_mask = (1ULL<<CONFIG_HOST_KDB0);   // DK
+    gpio_config(&ioConf);
+    ioConf.pin_bit_mask = (1ULL<<CONFIG_HOST_KDB3);   // SRK
+    gpio_config(&ioConf);
+
+
+    GPIO.out_w1tc = (MZ56DK_MASK);
+    GPIO.out_w1ts = (MZ56SRK_MASK);
+
+    // Configure a timer to be used for MZ5665 protocol spacing with 1uS resolution. The default clock source is the APB running at 80MHz.
+    timer_config_t timerConfig = {
+        .alarm_en    = TIMER_ALARM_DIS,            // No alarm, were not using interrupts as we are in a dedicated thread.
+        .counter_en  = TIMER_PAUSE,                // Timer paused until required.
+        .intr_type   = TIMER_INTR_LEVEL,           // No interrupts used.
+        .counter_dir = TIMER_COUNT_UP,             // Timing a fixed period.
+        .auto_reload = TIMER_AUTORELOAD_DIS,       // No need for auto reload, fixed time period.
+        .divider     = 80                          // 1Mhz operation giving 1uS resolution.
+    };
+    ESP_ERROR_CHECK(timer_init(TIMER_GROUP_0, TIMER_0, &timerConfig));
+    ESP_ERROR_CHECK(timer_set_counter_value(TIMER_GROUP_0, TIMER_0, 0));
+
+    if(bitPulse)    GPIO.out_w1ts = (MZ56DK_MASK);
+
+    // Permanent loop, wait for an incoming message on the key to send queue, read it then transmit to the MZ-5600/6500, repeat!
+    for(;;)
+    {
+        // Get the current timer value, only run the send data when the timer is idle.
+        timer_get_counter_value(TIMER_GROUP_0, TIMER_0, &curTime);
+        if(curTime >= delayTimer)
+        {
+            // Ensure the timer is stopped.
+            timer_pause(TIMER_GROUP_0, TIMER_0);
+            delayTimer = 0LL;
+
+            // Finite state machine to retrieve a key for transmission then serialise it according to the MZ5665 protocol.
+            switch(state)
+            {
+                // boot initialize
+                case SYN_BOOTINIT:
+                    if((REG_READ(GPIO_IN_REG) & MZ56DC_MASK) != 0 && 
+                       (REG_READ(GPIO_IN_REG) & MZ56STC_MASK) != 0)
+                    {
+                        ESP_LOGW(MAINTAG, "SYN_BOOTINIT");
+                        state = SYN_IDLE;
+                    }
+                    break;
+
+                // Waiting for key input
+                // DK Serach cycle. 6ms period pulse.
+                case SYN_IDLE:
+                    // Yield if the suspend flag is set.
+                    pThis->yield(0);
+
+                    // Check stack space, report if it is getting low.
+                    if(uxTaskGetStackHighWaterMark(NULL) < 1024)
+                    {
+                        ESP_LOGW(MAINTAG, "THREAD STACK SPACE(%d)\n",uxTaskGetStackHighWaterMark(NULL));
+                    }
+
+                    // If a new message arrives, start the serialiser to send it to the X1.
+                    if(xQueueReceive(xmitQueue, (void *)&rcvMsg, 0) == pdTRUE)
+                    {
+                        ESP_LOGW(MAINTAG, "Received:%08x", rcvMsg.keyCode);
+                        if(!(rcvMsg.keyCode & 0xff000000))
+                          state = SYN_STARTXMIT; 
+                   
+                        // Create, initialise and hold a spinlock so the current core is bound to this one method.
+                        portENTER_CRITICAL(&pThis->mzMutex);
+                    }
+                    // pulse
+                    else
+                    {
+                        if((REG_READ(GPIO_IN_REG) & MZ56DC_MASK)) {
+                            bitPulse = !bitPulse;
+                            if(bitPulse) {
+                                GPIO.out_w1ts = (MZ56DK_MASK);
+                                delayTimer = 3000LL;
+                            }
+                            else {
+                                GPIO.out_w1tc = (MZ56DK_MASK);
+                                delayTimer = 2500LL;
+                            }
+                        }
+                    }
+                    break;
+
+                case SYN_STARTXMIT:
+                    bitParity = false;
+                    state = SYN_SENDKEY;
+                    break;
+
+                case SYN_SENDKEY:
+                    //ESP_LOGW(MAINTAG, "SYN_SENDKEY");
+                    GPIO.out_w1tc = (MZ56DK_MASK);
+                    if(pThis->waitSignal(MZ56DC_MASK, true, 500LL)) {
+                        GPIO.out_w1tc = (MZ56SRK_MASK);
+                        if(pThis->waitSignal(MZ56STC_MASK, false, 500LL)) {
+                            state = SYN_SENDEB;
+                        }
+                        else {
+                            // time out
+                            GPIO.out_w1ts = (MZ56SRK_MASK);
+                            state = SYN_RESET;
+                        }
+                    }
+                    else {
+                        // time out
+                        state = SYN_RESET;
+                    }
+                    break;
+
+                case SYN_SENDEB:
+                    // extension bit set
+                    //ESP_LOGW(MAINTAG, "SYN_EB");
+                    if(rcvMsg.keyCode & 0x100) {
+                        GPIO.out_w1tc = MZ56DK_MASK;
+                    }
+                    else {
+                        GPIO.out_w1ts = MZ56DK_MASK;
+                        bitParity = !bitParity;
+                    }
+                    for(volatile uint32_t delay=0; delay < 20; delay++);
+                    GPIO.out_w1ts = MZ56SRK_MASK;
+                    bitCount = 8;
+                    state = SYN_SENDBIT;
+                    break;
+
+                case SYN_SENDBIT:
+                    //ESP_LOGW(MAINTAG, "SYN_SENDBIT");
+                    if(bitCount > 0) {
+                        if(pThis->waitSignal(MZ56STC_MASK, true, 500LL)) {
+                            for(volatile uint32_t delay=0; delay < 80; delay++);
+                            // send bit
+                            if(rcvMsg.keyCode & 0x80) {
+                                GPIO.out_w1tc = MZ56DK_MASK;
+                            }
+                            else {
+                                GPIO.out_w1ts = MZ56DK_MASK;
+                                bitParity = !bitParity;
+                            }
+                            rcvMsg.keyCode = (rcvMsg.keyCode << 1);
+
+                            if(pThis->waitSignal(MZ56STC_MASK, false, 500LL)) {
+                                bitCount--;
+                            }
+                            else {
+                                // time out
+                                state = SYN_RESET;
+                            }
+                        }
+                        else {
+                            // time out
+                            state = SYN_RESET;
+                        }
+                    }
+                    else {
+                        // count end
+                        state = SYN_SENDPB;
+                    }
+                    break;
+
+                case SYN_SENDPB:
+                    if(pThis->waitSignal(MZ56STC_MASK, true, 500LL)) {
+                        for(volatile uint32_t delay=0; delay < 80; delay++);
+                        // send parity
+                        if(bitParity) {
+                            GPIO.out_w1ts = MZ56DK_MASK;
+                        }
+                        else {
+                            GPIO.out_w1tc = MZ56DK_MASK;
+                        }
+
+                        if(pThis->waitSignal(MZ56STC_MASK, false, 500LL)) {
+                            state = SYN_ENDXMIT;
+                        }
+                        else {
+                            // time out
+                            state = SYN_RESET;
+                        }
+                    }
+                    else {
+                        // time out
+                        state = SYN_RESET;
+                    }
+                    break;
+
+                case SYN_ENDXMIT:
+                    if(pThis->waitSignal(MZ56STC_MASK, true, 500LL)) {
+                        for(volatile uint32_t delay=0; delay < 80; delay++);
+                        GPIO.out_w1tc = MZ56DK_MASK;
+                        state = SYN_ERRCHK;
+                    }
+                    else {
+                        // time out
+                        state = SYN_RESET;
+                    }
+                    break;
+
+                case SYN_ERRCHK:
+                    if(pThis->waitSignal(MZ56STC_MASK, false, 500LL)) {
+                        // DC read error check
+                        if(pThis->waitSignal(MZ56STC_MASK, true, 500LL)) {
+                            GPIO.out_w1ts = MZ56DK_MASK;
+                        }
+                        else {
+                            // time out
+                            state = SYN_RESET;
+                        }
+                    }
+                    else {
+                        // time out
+                        state = SYN_RESET;
+                    }
+                    state = SYN_RESET;
+                    break;
+
+                case SYN_RCVCOM:
+                    break;
+
+                case SYN_RESET:
+                    ESP_LOGW(MAINTAG, "SYN_RESET");
+                    GPIO.out_w1tc = (MZ56DK_MASK);
+                    GPIO.out_w1ts = (MZ56SRK_MASK);
+                    delayTimer = 0LL;
+                    // End of critical timing loop, release the core.
+                    portEXIT_CRITICAL(&pThis->mzMutex);
+                    state = SYN_IDLE;
+                    break;
+            }
+
+            // If a new delay is requested, set the value into the timer and start.
+            if(delayTimer > 0LL)
+            {
+                timer_set_counter_value(TIMER_GROUP_0, TIMER_0, 0LL);
+                timer_start(TIMER_GROUP_0, TIMER_0);
+            }
+        }
+    }
+
 }
 
 // Method to select keyboard configuration options. When a key sequence is pressed, ie. SHIFT+CTRL+ESC then the fourth simultaneous key is the required option and given to this 
@@ -411,8 +552,8 @@ uint32_t MZ5665::mapKey(uint16_t scanCode)
     //
     if(scanCode & PS2_BREAK)
     {
- //       if((keyCode == PS2_KEY_L_SHIFT || keyCode == PS2_KEY_R_SHIFT)  && (scanCode & PS2_SHIFT) == 0) { mapped=true; this->mzCtrl.keyCtrl |= X1_CTRL_SHIFT; }
- //       if((keyCode == PS2_KEY_L_CTRL  || keyCode == PS2_KEY_R_CTRL)   && (scanCode & PS2_CTRL) == 0)  { mapped=true; this->mzCtrl.keyCtrl |= X1_CTRL_CTRL; }
+        if((keyCode == PS2_KEY_L_SHIFT || keyCode == PS2_KEY_R_SHIFT)  && (scanCode & PS2_SHIFT) == 0) { mapped=true; this->mzCtrl.keyCtrl |= MZ5665_CTRL_SHIFT; }
+        if((keyCode == PS2_KEY_L_CTRL  || keyCode == PS2_KEY_R_CTRL)   && (scanCode & PS2_CTRL) == 0)  { mapped=true; this->mzCtrl.keyCtrl |= MZ5665_CTRL_CTRL; }
 
         // Any break key clears the option select flag.
         this->mzCtrl.optionSelect = false;
@@ -421,11 +562,11 @@ uint32_t MZ5665::mapKey(uint16_t scanCode)
         led->setLEDMode(LED::LED_MODE_OFF, LED::LED_DUTY_CYCLE_OFF, 0, 0L, 0L);
     } else
     {
- //       if((keyCode == PS2_KEY_L_SHIFT || keyCode == PS2_KEY_R_SHIFT)  && (scanCode & PS2_SHIFT)) { mapped=true; this->mzCtrl.keyCtrl &= ~X1_CTRL_SHIFT; }
- //       if((keyCode == PS2_KEY_L_CTRL  || keyCode == PS2_KEY_R_CTRL)   && (scanCode & PS2_CTRL))  { mapped=true; this->mzCtrl.keyCtrl &= ~X1_CTRL_CTRL; }
- //       if(keyCode == PS2_KEY_L_ALT)     { mapped = true; this->mzCtrl.keyCtrl ^= X1_CTRL_KANA; }
- //       if(keyCode == PS2_KEY_R_ALT)     { mapped = true; this->mzCtrl.keyCtrl ^= X1_CTRL_GRAPH; }
- //       if(keyCode == PS2_KEY_CAPS)      { mapped = true; this->mzCtrl.keyCtrl ^= X1_CTRL_CAPS; }
+        if((keyCode == PS2_KEY_L_SHIFT || keyCode == PS2_KEY_R_SHIFT)  && (scanCode & PS2_SHIFT)) { mapped=true; this->mzCtrl.keyCtrl &= ~MZ5665_CTRL_SHIFT; }
+        if((keyCode == PS2_KEY_L_CTRL  || keyCode == PS2_KEY_R_CTRL)   && (scanCode & PS2_CTRL))  { mapped=true; this->mzCtrl.keyCtrl &= ~MZ5665_CTRL_CTRL; }
+        if(keyCode == PS2_KEY_L_ALT)     { mapped = true; this->mzCtrl.keyCtrl ^= MZ5665_CTRL_KANA; }
+        if(keyCode == PS2_KEY_R_ALT)     { mapped = true; this->mzCtrl.keyCtrl ^= MZ5665_CTRL_GRAPH; }
+        if(keyCode == PS2_KEY_CAPS)      { mapped = true; this->mzCtrl.keyCtrl ^= MZ5665_CTRL_CAPS; }
         // Special mapping to allow selection of keyboard options. If the user presses CTRL+SHIFT+ESC then a flag becomes active and should a fourth key be pressed before a BREAK then the fourth key is taken as an option key and processed accordingly.
         if(this->mzCtrl.optionSelect == true) { mapped = true; this->mzCtrl.optionSelect = false; selectOption(keyCode); }
         if(keyCode == PS2_KEY_ESC && (scanCode & PS2_CTRL) && (scanCode & PS2_SHIFT)) { mapped = true; this->mzCtrl.optionSelect = true; }
@@ -469,8 +610,8 @@ uint32_t MZ5665::mapKey(uint16_t scanCode)
                 if( (((mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_SHIFT) == 0) && ((mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_CTRL) == 0) && ((mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_KANA)  == 0) && ((mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_GRAPH) == 0) && ((mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_GUI)   == 0) && ((mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_FUNC)  == 0)) ||
                     ((scanCode & PS2_SHIFT)                         && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_SHIFT) != 0) ||
                     ((scanCode & PS2_CTRL)                          && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_CTRL)  != 0) ||
-              //      ((this->mzCtrl.keyCtrl & X1_CTRL_KANA) == 0  && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_KANA)  != 0) ||
-              //      ((this->mzCtrl.keyCtrl & X1_CTRL_GRAPH) == 0 && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_GRAPH) != 0) ||
+                    ((this->mzCtrl.keyCtrl & MZ5665_CTRL_KANA) == 0  && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_KANA)  != 0) ||
+                    ((this->mzCtrl.keyCtrl & MZ5665_CTRL_GRAPH) == 0 && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_GRAPH) != 0) ||
                     ((scanCode & PS2_GUI)                           && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_GUI)   != 0) || 
                     ((scanCode & PS2_FUNCTION)                      && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_FUNC)  != 0) )
                 {
@@ -478,8 +619,8 @@ uint32_t MZ5665::mapKey(uint16_t scanCode)
                     // Exact entry match, data + control key? On an exact match we only process the first key. On a data only match we fall through to include additional data and control key matches to allow for un-mapped key combinations, ie. Japanese characters.
                     matchExact = (((scanCode & PS2_SHIFT)                         && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_SHIFT) != 0) || ((scanCode & PS2_SHIFT) == 0               && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_SHIFT) == 0)) &&
                                  (((scanCode & PS2_CTRL)                          && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_CTRL)  != 0) || ((scanCode & PS2_CTRL) == 0                && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_CTRL)  == 0)) &&
-                       //          (((this->mzCtrl.keyCtrl & X1_CTRL_KANA) == 0  && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_KANA)  != 0) || ((this->mzCtrl.keyCtrl & X1_CTRL_KANA)  && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_KANA)  == 0)) &&
-                       //          (((this->mzCtrl.keyCtrl & X1_CTRL_GRAPH) == 0 && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_GRAPH) != 0) || ((this->mzCtrl.keyCtrl & X1_CTRL_GRAPH) && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_GRAPH) == 0)) &&
+                                 (((this->mzCtrl.keyCtrl & MZ5665_CTRL_KANA) == 0  && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_KANA)  != 0) || ((this->mzCtrl.keyCtrl & MZ5665_CTRL_KANA)  && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_KANA)  == 0)) &&
+                                 (((this->mzCtrl.keyCtrl & MZ5665_CTRL_GRAPH) == 0 && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_GRAPH) != 0) || ((this->mzCtrl.keyCtrl & MZ5665_CTRL_GRAPH) && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_GRAPH) == 0)) &&
                                  (((scanCode & PS2_GUI)                           && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_GUI)   != 0) || ((scanCode & PS2_GUI) == 0                 && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_GUI)   == 0)) &&
                                  (((scanCode & PS2_FUNCTION)                      && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_FUNC)  != 0) || ((scanCode & PS2_FUNCTION) == 0            && (mzCtrl.kme[idx].ps2Ctrl & PS2CTRL_FUNC)  == 0))
                                ? true : false;
@@ -496,26 +637,13 @@ uint32_t MZ5665::mapKey(uint16_t scanCode)
                             vTaskDelay(100);
                         }
 
-                        // Mode A sends a release with 0x00.
-                //        if(this->mzCtrl.modeB == false)
-                //        {
-                //            mappedKey = (0xFF << 8) | 0x00;
-                //            mapped = true;
-                //          //  vTaskDelay(300);
-                //        } else
-                //        if(this->mzCtrl.modeB == true)
-                //        {
-                            // Clear only the bits relevant to the released key.
-               //             mappedKey &= ((mzCtrl.kme[idx].x1Ctrl << 16) | (mzCtrl.kme[idx].x1Key2 << 8) | mzCtrl.kme[idx].x1Key);
-                //        }
+                        mappedKey = 0xff000000 | (mzCtrl.kme[idx].mzCtrl << 16) | (mzCtrl.kme[idx].mzExt << 8) | (mzCtrl.kme[idx].mzKey);
+                        mapped = true;
+
                     } else
                     {
-                        // Mode A return the key in the table, mode B OR the key to build up a final map.
-              //          if(this->mzCtrl.modeB == false)
-               //             mappedKey = ((mzCtrl.kme[idx].x1Ctrl & this->mzCtrl.keyCtrl) << 8) | mzCtrl.kme[idx].x1Key;
-               //         else
-               //             mappedKey |= ((mzCtrl.kme[idx].x1Ctrl << 16) | (mzCtrl.kme[idx].x1Key2 << 8) | mzCtrl.kme[idx].x1Key);
-               //         mapped = true;
+                        mappedKey = (mzCtrl.kme[idx].mzCtrl << 16) | (mzCtrl.kme[idx].mzExt << 8) | (mzCtrl.kme[idx].mzKey);
+                        mapped = true;
                     }
                 }
             }
@@ -575,6 +703,7 @@ IRAM_ATTR void MZ5665::hidInterface( void * pvParameters )
             // Map the PS/2 key to an MZ5665 CTRL + KEY
             mzKey = pThis->mapKey(scanCode);
             if(mzKey != 0L) { pThis->pushKeyToQueue(mzKey); }
+	    ESP_LOGW(MAPKEYTAG, "MZCODE:%04x",mzKey);
 
             // Toggle LED to indicate data flow.
             if((scanCode & PS2_BREAK) == 0)

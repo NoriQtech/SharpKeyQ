@@ -618,10 +618,18 @@ uint32_t getHostType(bool eFuseInvalid, t_EFUSE sharpkeyEfuses)
             //                   gpioIN, tMPXI, tRTSNI, tKDB0, tKDB1, tKDB2, tKDB3, tKDI4, cntCtrl);
 
             // Check for PC-9801 - KD4 = low, MPX = low, RTSN = high
-            if(tKDI4 == 0 && tMPXI == 0 && tRTSNI == 1 && tKDB0 == 1 && tKDB3 == 1 &&
-                    eFuseInvalid == false && (sharpkeyEfuses.disableRestrictions == true || sharpkeyEfuses.enableMouse == true))
+            // KDB0 = low, KDB3 = high, KDB2 = high
+            if(tKDI4 == 0 && tMPXI == 0 && tRTSNI == 1 && tKDB0 == 1 && tKDB3 == 1 && tKDB2 == 1 &&
+                    eFuseInvalid == false && (sharpkeyEfuses.disableRestrictions == true || sharpkeyEfuses.enablePC9801 == true))
             {
                 ifMode = 9801;
+            }
+            // Check for MZ-5500/6500 - KD4 = low, MPX = low, RTSN = high
+            // KDB0 = low, KDB3 = high, KDB2 = low
+            if(tKDI4 == 0 && tMPXI == 0 && tRTSNI == 1 && tKDB0 == 1 && tKDB3 == 1 && tKDB2 == 0 &&
+                    eFuseInvalid == false && (sharpkeyEfuses.disableRestrictions == true || sharpkeyEfuses.enableMZ5665 == true))
+            {
+                ifMode = 5600;
             }
             // Check for X68000 - KD4 = low, MPX = low, RTSN = high
             else if(cntCtrl <= 1 && tMPXI == 0 && tRTSNI == 1 && 

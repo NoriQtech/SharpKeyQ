@@ -11,6 +11,7 @@
 // History:         Apr 2022 - Initial write.
 //            v1.01 Jun 2022 - Updates to reflect changes realised in other modules due to addition of
 //                             bluetooth and suspend logic due to NVS issues using both cores.
+//            v1.02 Feb 2024 - Updated to actually work by NoriQ.
 //
 // Notes:           See Makefile to enable/disable conditional components
 //
@@ -49,7 +50,7 @@ class MZ5665 : public KeyInterface  {
     #define NUMELEM(a)                      (sizeof(a)/sizeof(a[0]))
     
     // Constants.
-    #define MZ5665IF_VERSION                1.01
+    #define MZ5665IF_VERSION                1.02
     #define MZ5665IF_KEYMAP_FILE            "MZ5665_KeyMap.BIN"
     #define MAX_MZ5665_XMIT_KEY_BUF         16
     #define PS2TBL_MZ5665_MAXROWS           349
@@ -62,14 +63,18 @@ class MZ5665 : public KeyInterface  {
     #define MZ5665_CTRL_CTRL                ((unsigned char) (1 << 0))
 
     // Special key definition.
-    #define MZ5665_KEY_UP                   0x1E     // ↑
-    #define MZ5665_KEY_DOWN                 0x1F     // ↓
-    #define MZ5665_KEY_LEFT                 0x1D     // ←
-    #define MZ5665_KEY_RIGHT                0x1C     // → →
-    #define MZ5665_KEY_INS                  0x12     // INS
-    #define MZ5665_KEY_DEL                  0x08     // DEL
-    #define MZ5665_KEY_CLR                  0x0C     // CLR
-    #define MZ5665_KEY_HOME                 0x0B     // HOME
+    #define MZ5665_KEY_UP                   0x1C     // ↑
+    #define MZ5665_KEY_DOWN                 0x1D     // ↓
+    #define MZ5665_KEY_LEFT                 0x1F     // ←
+    #define MZ5665_KEY_RIGHT                0x1E     // →
+    #define MZ5665_KEY_INS                  0x0B     // INS
+    #define MZ5665_KEY_DEL                  0x7F     // DEL
+    #define MZ5665_KEY_CLR                  0x18     // CLR
+    #define MZ5665_KEY_HOME                 0x8F     // HOME
+    #define MZ5665_KEY_ARGO                 0x14     // ARGO
+    #define MZ5665_KEY_KANA                 0x17     // KANA
+    #define MZ5665_KEY_GRAPH                0x16     // GRAPH
+    #define MZ5665_KEY_BREAK                0x06     // Break
     
     // PS2 Flag definitions.
     #define PS2CTRL_NONE                    0x00     // No keys active = 0
@@ -187,6 +192,7 @@ class MZ5665 : public KeyInterface  {
         bool                            saveKeyMap(void);
         void                            init(uint32_t ifMode, NVS *hdlNVS, LED *hdlLED, HID *hdlHID);
         void                            init(NVS *hdlNVS, HID *hdlHID);
+        bool                            waitSignal(uint32_t mask, bool val, uint64_t timeout);
 
 //        // Overload the base yield method to include suspension of the PS/2 Keyboard interface. This interface uses interrupts which are not mutex protected and clash with the
 //        // WiFi API methods.
@@ -218,6 +224,7 @@ class MZ5665 : public KeyInterface  {
             uint8_t                     keyboardModel;
             uint8_t                     machine;
             uint8_t                     mzKey;
+            uint8_t                     mzExt;
             uint8_t                     mzCtrl;
         } t_keyMapEntry;
 
@@ -270,304 +277,328 @@ class MZ5665 : public KeyInterface  {
         {
             // HELP
             // COPY
-          ////PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data        MZ5665 Ctrl (Flags to Set).
-          //{ PS2_KEY_F1,        PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           'v',               0x00,                                                                    },   // SHIFT+F1
-          //{ PS2_KEY_F2,        PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           'w',               0x00,                                                                    },   // SHIFT+F2
-          //{ PS2_KEY_F3,        PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           'x',               0x00,                                                                    },   // SHIFT+F3
-          //{ PS2_KEY_F4,        PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           'y',               0x00,                                                                    },   // SHIFT+F4
-          //{ PS2_KEY_F5,        PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           'z',               0x00,                                                                    },   // SHIFT+F5
-          //{ PS2_KEY_F1,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           'q',               0x00,                                                                    },   // F1
-          //{ PS2_KEY_F2,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           'r',               0x00,                                                                    },   // F2
-          //{ PS2_KEY_F3,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           's',               0x00,                                                                    },   // F3
-          //{ PS2_KEY_F4,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           't',               0x00,                                                                    },   // F4
-          //{ PS2_KEY_F5,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           'u',               0x00,                                                                    },   // F5
-          //{ PS2_KEY_F6,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xEC,              0x00,                                                                    },   // F6
-          //{ PS2_KEY_F7,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xEB,              0x00,                                                                    },   // F7
-          //{ PS2_KEY_F8,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xE2,              0x00,                                                                    },   // F8
-          //{ PS2_KEY_F9,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xE1,              0x00,                                                                    },   // F9
-          //{ PS2_KEY_F10,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   // XFER
-          //{ PS2_KEY_F11,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xFE,              0x00,                                                                    },   // HELP
-          //{ PS2_KEY_F12,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   // COPY
-          //{ PS2_KEY_TAB,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x09,              0x00,                                                                    },   // TAB
+          ////PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data    MZ5665 Ext    MZ5665 Ctrl (Flags to Set).
+          //{ PS2_KEY_F1,        PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           'v',           0x00,         0x00, },   // SHIFT+F1
+          //{ PS2_KEY_F2,        PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           'w',           0x00,         0x00, },   // SHIFT+F2
+          //{ PS2_KEY_F3,        PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           'x',           0x00,         0x00, },   // SHIFT+F3
+          //{ PS2_KEY_F4,        PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           'y',           0x00,         0x00, },   // SHIFT+F4
+          //{ PS2_KEY_F5,        PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           'z',           0x00,         0x00, },   // SHIFT+F5
+          //{ PS2_KEY_F1,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           'q',           0x00,         0x00, },   // F1
+          //{ PS2_KEY_F2,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           'r',           0x00,         0x00, },   // F2
+          //{ PS2_KEY_F3,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           's',           0x00,         0x00, },   // F3
+          //{ PS2_KEY_F4,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           't',           0x00,         0x00, },   // F4
+          //{ PS2_KEY_F5,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           'u',           0x00,         0x00, },   // F5
+          //{ PS2_KEY_F6,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xEC,          0x00,         0x00, },   // F6
+          //{ PS2_KEY_F7,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xEB,          0x00,         0x00, },   // F7
+          //{ PS2_KEY_F8,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xE2,          0x00,         0x00, },   // F8
+          //{ PS2_KEY_F9,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xE1,          0x00,         0x00, },   // F9
+          //{ PS2_KEY_F10,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   // XFER
+          //{ PS2_KEY_F11,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xFE,          0x00,         0x00, },   // HELP
+          //{ PS2_KEY_F12,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   // COPY
+          //{ PS2_KEY_TAB,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x09,          0x00,         0x00, },   // TAB
             // Numeric keys.
-        	{ PS2_KEY_0,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '0',               0x00,                                                                    },   // 0
-        	{ PS2_KEY_1,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '1',               0x00,                                                                    },   // 1
-        	{ PS2_KEY_2,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '2',               0x00,                                                                    },   // 2
-        	{ PS2_KEY_3,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '3',               0x00,                                                                    },   // 3
-        	{ PS2_KEY_4,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '4',               0x00,                                                                    },   // 4
-        	{ PS2_KEY_5,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '5',               0x00,                                                                    },   // 5
-        	{ PS2_KEY_6,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '6',               0x00,                                                                    },   // 6
-        	{ PS2_KEY_7,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '7',               0x00,                                                                    },   // 7
-        	{ PS2_KEY_8,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '8',               0x00,                                                                    },   // 8
-        	{ PS2_KEY_9,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '9',               0x00,                                                                    },   // 9
+       	    { PS2_KEY_0,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '0',           0x00,         0x00, },   // 0
+            { PS2_KEY_1,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '1',           0x00,         0x00, },   // 1
+            { PS2_KEY_2,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '2',           0x00,         0x00, },   // 2
+            { PS2_KEY_3,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '3',           0x00,         0x00, },   // 3
+            { PS2_KEY_4,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '4',           0x00,         0x00, },   // 4
+            { PS2_KEY_5,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '5',           0x00,         0x00, },   // 5
+            { PS2_KEY_6,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '6',           0x00,         0x00, },   // 6
+            { PS2_KEY_7,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '7',           0x00,         0x00, },   // 7
+            { PS2_KEY_8,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '8',           0x00,         0x00, },   // 8
+            { PS2_KEY_9,         PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '9',           0x00,         0x00, },   // 9
             // Punctuation keys.
-        	{ PS2_KEY_0,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           ')',               0x00,                                                                    },   // Close Right Bracket )
-        	{ PS2_KEY_1,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '!',               0x00,                                                                    },   // Exclamation
-        	{ PS2_KEY_2,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '"',               0x00,                                                                    },   // Double quote.
-            { PS2_KEY_3,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x23,              0x00,                                                                    },   // Pound Sign -> Hash
-        	{ PS2_KEY_4,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '$',               0x00,                                                                    },   // Dollar
-        	{ PS2_KEY_5,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '%',               0x00,                                                                    },   // Percent
-        	{ PS2_KEY_6,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '^',               0x00,                                                                    },   // Kappa
-        	{ PS2_KEY_7,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '&',               0x00,                                                                    },   // Ampersand
-        	{ PS2_KEY_8,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '*',               0x00,                                                                    },   // Star
-        	{ PS2_KEY_9,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '(',               0x00,                                                                    },   // Open Left Bracket (
+            { PS2_KEY_0,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           ')',           0x00,         0x00, },   // Close Right Bracket )
+            { PS2_KEY_1,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '!',           0x00,         0x00, },   // Exclamation
+            { PS2_KEY_2,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '"',           0x00,         0x00, },   // Double quote.
+            { PS2_KEY_3,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x23,          0x00,         0x00, },   // Pound Sign -> Hash
+            { PS2_KEY_4,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '$',           0x00,         0x00, },   // Dollar
+            { PS2_KEY_5,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '%',           0x00,         0x00, },   // Percent
+            { PS2_KEY_6,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '^',           0x00,         0x00, },   // Kappa
+            { PS2_KEY_7,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '&',           0x00,         0x00, },   // Ampersand
+            { PS2_KEY_8,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '*',           0x00,         0x00, },   // Star
+            { PS2_KEY_9,         PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '(',           0x00,         0x00, },   // Open Left Bracket (
             // ALPHA keys, lower and uppercase.        
-            //PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data        MZ5665 Ctrl (Flags to Set).
-        	{ PS2_KEY_A,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'a',               0x00,                                                                    },   // a
-        	{ PS2_KEY_A,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'A',               0x00,                                                                    },   // A
-            { PS2_KEY_B,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'b',               0x00,                                                                    },   // b
-            { PS2_KEY_B,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'B',               0x00,                                                                    },   // B
-            { PS2_KEY_C,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'c',               0x00,                                                                    },   // c
-            { PS2_KEY_C,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'C',               0x00,                                                                    },   // C
-            { PS2_KEY_D,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'd',               0x00,                                                                    },   // d
-            { PS2_KEY_D,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'D',               0x00,                                                                    },   // D
-            { PS2_KEY_E,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'e',               0x00,                                                                    },   // e
-            { PS2_KEY_E,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'E',               0x00,                                                                    },   // E
-            { PS2_KEY_F,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'f',               0x00,                                                                    },   // f
-            { PS2_KEY_F,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'F',               0x00,                                                                    },   // F
-            { PS2_KEY_G,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'g',               0x00,                                                                    },   // g
-            { PS2_KEY_G,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'G',               0x00,                                                                    },   // G
-            { PS2_KEY_H,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'h',               0x00,                                                                    },   // h
-            { PS2_KEY_H,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'H',               0x00,                                                                    },   // H
-            { PS2_KEY_I,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'i',               0x00,                                                                    },   // i
-            { PS2_KEY_I,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'I',               0x00,                                                                    },   // I
-            { PS2_KEY_J,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'j',               0x00,                                                                    },   // j
-            { PS2_KEY_J,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'J',               0x00,                                                                    },   // J
-            { PS2_KEY_K,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'k',               0x00,                                                                    },   // k
-            { PS2_KEY_K,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'K',               0x00,                                                                    },   // K
-            { PS2_KEY_L,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'l',               0x00,                                                                    },   // l
-            { PS2_KEY_L,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'L',               0x00,                                                                    },   // L
-            { PS2_KEY_M,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'm',               0x00,                                                                    },   // m
-            { PS2_KEY_M,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'M',               0x00,                                                                    },   // M
-            { PS2_KEY_N,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'n',               0x00,                                                                    },   // n
-            { PS2_KEY_N,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'N',               0x00,                                                                    },   // N
-            { PS2_KEY_O,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'o',               0x00,                                                                    },   // o
-            { PS2_KEY_O,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'O',               0x00,                                                                    },   // O
-            { PS2_KEY_P,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'p',               0x00,                                                                    },   // p
-            { PS2_KEY_P,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'P',               0x00,                                                                    },   // P
-            { PS2_KEY_Q,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'q',               0x00,                                                                    },   // q
-            { PS2_KEY_Q,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'Q',               0x00,                                                                    },   // Q
-            { PS2_KEY_R,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'r',               0x00,                                                                    },   // r
-            { PS2_KEY_R,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'R',               0x00,                                                                    },   // R
-            { PS2_KEY_S,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           's',               0x00,                                                                    },   // s
-            { PS2_KEY_S,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'S',               0x00,                                                                    },   // S
-            { PS2_KEY_T,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           't',               0x00,                                                                    },   // t
-            { PS2_KEY_T,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'T',               0x00,                                                                    },   // T
-            { PS2_KEY_U,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'u',               0x00,                                                                    },   // u
-            { PS2_KEY_U,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'U',               0x00,                                                                    },   // U
-            { PS2_KEY_V,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'v',               0x00,                                                                    },   // v
-            { PS2_KEY_V,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'V',               0x00,                                                                    },   // V
-            { PS2_KEY_W,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'w',               0x00,                                                                    },   // w
-            { PS2_KEY_W,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'W',               0x00,                                                                    },   // W
-            { PS2_KEY_X,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'x',               0x00,                                                                    },   // x
-            { PS2_KEY_X,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'X',               0x00,                                                                    },   // X
-            { PS2_KEY_Y,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'y',               0x00,                                                                    },   // y
-            { PS2_KEY_Y,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'Y',               0x00,                                                                    },   // Y
-            { PS2_KEY_Z,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'z',               0x00,                                                                    },   // z
-            { PS2_KEY_Z,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'Z',               0x00,                                                                    },   // Z
+            //PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data    MZ5665 Ext    MZ5665 Ctrl (Flags to Set).
+            { PS2_KEY_A,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'a',           0x00,         0x00, },   // a
+            { PS2_KEY_A,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'A',           0x00,         0x00, },   // A
+            { PS2_KEY_B,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'b',           0x00,         0x00, },   // b
+            { PS2_KEY_B,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'B',           0x00,         0x00, },   // B
+            { PS2_KEY_C,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'c',           0x00,         0x00, },   // c
+            { PS2_KEY_C,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'C',           0x00,         0x00, },   // C
+            { PS2_KEY_D,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'd',           0x00,         0x00, },   // d
+            { PS2_KEY_D,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'D',           0x00,         0x00, },   // D
+            { PS2_KEY_E,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'e',           0x00,         0x00, },   // e
+            { PS2_KEY_E,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'E',           0x00,         0x00, },   // E
+            { PS2_KEY_F,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'f',           0x00,         0x00, },   // f
+            { PS2_KEY_F,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'F',           0x00,         0x00, },   // F
+            { PS2_KEY_G,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'g',           0x00,         0x00, },   // g
+            { PS2_KEY_G,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'G',           0x00,         0x00, },   // G
+            { PS2_KEY_H,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'h',           0x00,         0x00, },   // h
+            { PS2_KEY_H,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'H',           0x00,         0x00, },   // H
+            { PS2_KEY_I,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'i',           0x00,         0x00, },   // i
+            { PS2_KEY_I,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'I',           0x00,         0x00, },   // I
+            { PS2_KEY_J,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'j',           0x00,         0x00, },   // j
+            { PS2_KEY_J,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'J',           0x00,         0x00, },   // J
+            { PS2_KEY_K,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'k',           0x00,         0x00, },   // k
+            { PS2_KEY_K,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'K',           0x00,         0x00, },   // K
+            { PS2_KEY_L,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'l',           0x00,         0x00, },   // l
+            { PS2_KEY_L,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'L',           0x00,         0x00, },   // L
+            { PS2_KEY_M,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'm',           0x00,         0x00, },   // m
+            { PS2_KEY_M,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'M',           0x00,         0x00, },   // M
+            { PS2_KEY_N,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'n',           0x00,         0x00, },   // n
+            { PS2_KEY_N,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'N',           0x00,         0x00, },   // N
+            { PS2_KEY_O,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'o',           0x00,         0x00, },   // o
+            { PS2_KEY_O,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'O',           0x00,         0x00, },   // O
+            { PS2_KEY_P,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'p',           0x00,         0x00, },   // p
+            { PS2_KEY_P,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'P',           0x00,         0x00, },   // P
+            { PS2_KEY_Q,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'q',           0x00,         0x00, },   // q
+            { PS2_KEY_Q,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'Q',           0x00,         0x00, },   // Q
+            { PS2_KEY_R,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'r',           0x00,         0x00, },   // r
+            { PS2_KEY_R,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'R',           0x00,         0x00, },   // R
+            { PS2_KEY_S,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           's',           0x00,         0x00, },   // s
+            { PS2_KEY_S,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'S',           0x00,         0x00, },   // S
+            { PS2_KEY_T,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           't',           0x00,         0x00, },   // t
+            { PS2_KEY_T,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'T',           0x00,         0x00, },   // T
+            { PS2_KEY_U,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'u',           0x00,         0x00, },   // u
+            { PS2_KEY_U,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'U',           0x00,         0x00, },   // U
+            { PS2_KEY_V,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'v',           0x00,         0x00, },   // v
+            { PS2_KEY_V,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'V',           0x00,         0x00, },   // V
+            { PS2_KEY_W,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'w',           0x00,         0x00, },   // w
+            { PS2_KEY_W,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'W',           0x00,         0x00, },   // W
+            { PS2_KEY_X,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'x',           0x00,         0x00, },   // x
+            { PS2_KEY_X,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'X',           0x00,         0x00, },   // X
+            { PS2_KEY_Y,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'y',           0x00,         0x00, },   // y
+            { PS2_KEY_Y,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'Y',           0x00,         0x00, },   // Y
+            { PS2_KEY_Z,         PS2CTRL_SHIFT | PS2CTRL_CAPS,               KEYMAP_STANDARD,             MZ5665_ALL,           'z',           0x00,         0x00, },   // z
+            { PS2_KEY_Z,         PS2CTRL_CAPS,                               KEYMAP_STANDARD,             MZ5665_ALL,           'Z',           0x00,         0x00, },   // Z
     
-            //PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data        MZ5665 Ctrl (Flags to Set).
-            { PS2_KEY_SPACE,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ' ',               0x00,                                                                    },   // Space
-            { PS2_KEY_COMMA,     PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '<',               0x00,                                                                    },   // Less Than <
-            { PS2_KEY_COMMA,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ',',               0x00,                                                                    },   // Comma ,
-            { PS2_KEY_SEMI,      PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           ':',               0x00,                                                                    },   // Colon :
-            { PS2_KEY_SEMI,      PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ';',               0x00,                                                                    },   // Semi-Colon ;
-            { PS2_KEY_DOT,       PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '>',               0x00,                                                                    },   // Greater Than >
-            { PS2_KEY_DOT,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '.',               0x00,                                                                    },   // Full stop .
-            { PS2_KEY_DIV,       PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '?',               0x00,                                                                    },   // Question ?
-            { PS2_KEY_DIV,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '/',               0x00,                                                                    },   // Divide /
-            { PS2_KEY_MINUS,     PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '_',               0x00,                                                                    },   // Underscore
-            { PS2_KEY_MINUS,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '-',               0x00,                                                                    },   
-            { PS2_KEY_APOS,      PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '@',               0x00,                                                                    },   // At @
-            { PS2_KEY_APOS,      PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '\'',              0x00,                                                                    },   // Single quote '
-            { PS2_KEY_OPEN_SQ,   PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '{',               0x00,                                                                    },   // Open Left Brace {
-            { PS2_KEY_OPEN_SQ,   PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '[',               0x00,                                                                    },   // Open Left Square Bracket [
-            { PS2_KEY_EQUAL,     PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '+',               0x00,                                                                    },   // Plus +
-            { PS2_KEY_EQUAL,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '=',               0x00,                                                                    },   // Equal =
-            { PS2_KEY_CAPS,      PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ' ',               0x00,                                                                    },   // LOCK
-            { PS2_KEY_ENTER,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x0D,              0x00,                                                                    },   // ENTER/RETURN
-            { PS2_KEY_CLOSE_SQ,  PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '}',               0x00,                                                                    },   // Close Right Brace }
-            { PS2_KEY_CLOSE_SQ,  PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ']',               0x00,                                                                    },   // Close Right Square Bracket ]
-            { PS2_KEY_BACK,      PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '|',               0x00,                                                                    },   // 
-            { PS2_KEY_BACK,      PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '\\',              0x00,                                                                    },   // Back slash maps to Yen
-            { PS2_KEY_BTICK,     PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '`',               0x00,                                                                    },   // Pipe
-            { PS2_KEY_BTICK,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '|',               0x00,                                                                    },   // Back tick `
-            { PS2_KEY_HASH,      PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '~',               0x00,                                                                    },   // Tilde has no mapping.
-            { PS2_KEY_HASH,      PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '#',               0x00,                                                                    },   // Hash
-            { PS2_KEY_BS,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x08,              0x00,                                                                    },   // Backspace
-            { PS2_KEY_ESC,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x1B,              0x00,                                                                    },   // ESCape
-            { PS2_KEY_SCROLL,    PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           ' ',               0x00,                                                                    },   // Not assigned.
-            { PS2_KEY_INSERT,    PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_INS,    0x00,                                                                    },   // INSERT
-            { PS2_KEY_HOME,      PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_CLR,    0x00,                                                                    },   // CLR
-            { PS2_KEY_HOME,      PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_HOME,   0x00,                                                                    },   // HOME
-            { PS2_KEY_DELETE,    PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_DEL,    0x00,                                                                    },   // DELETE
-            { PS2_KEY_END,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x11,              0x00,                                                                    },   // END
-            { PS2_KEY_PGUP,      PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x0E,              0x00,                                                                    },   // Roll Up.
-            { PS2_KEY_PGDN,      PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x0F,              0x00,                                                                    },   // Roll Down
-            { PS2_KEY_UP_ARROW,  PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_UP,     0x00,                                                                    },   // Up Arrow
-            { PS2_KEY_L_ARROW,   PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_LEFT,   0x00,                                                                    },   // Left Arrow
-            { PS2_KEY_DN_ARROW,  PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_DOWN,   0x00,                                                                    },   // Down Arrow
-            { PS2_KEY_R_ARROW,   PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_RIGHT,  0x00,                                                                    },   // Right Arrow
-            { PS2_KEY_NUM,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   // Not assigned.
+            //PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data    MZ5665 Ext    MZ5665 Ctrl (Flags to Set).
+            { PS2_KEY_SPACE,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ' ',           0x00,         0x00, },   // Space
+            { PS2_KEY_COMMA,     PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '<',           0x00,         0x00, },   // Less Than <
+            { PS2_KEY_COMMA,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ',',           0x00,         0x00, },   // Comma ,
+            { PS2_KEY_SEMI,      PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           ':',           0x00,         0x00, },   // Colon :
+            { PS2_KEY_SEMI,      PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ';',           0x00,         0x00, },   // Semi-Colon ;
+            { PS2_KEY_DOT,       PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '>',           0x00,         0x00, },   // Greater Than >
+            { PS2_KEY_DOT,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '.',           0x00,         0x00, },   // Full stop .
+            { PS2_KEY_DIV,       PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '?',           0x00,         0x00, },   // Question ?
+            { PS2_KEY_DIV,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '/',           0x00,         0x00, },   // Divide /
+            { PS2_KEY_MINUS,     PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '_',           0x00,         0x00, },   // Underscore
+            { PS2_KEY_MINUS,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '-',           0x00,         0x00, },   
+            { PS2_KEY_APOS,      PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '@',           0x00,         0x00, },   // At @
+            { PS2_KEY_APOS,      PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '\'',          0x00,         0x00, },   // Single quote 'x00
+            { PS2_KEY_OPEN_SQ,   PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '{',           0x00,         0x00, },   // Open Left Brace {
+            { PS2_KEY_OPEN_SQ,   PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '[',           0x00,         0x00, },   // Open Left Square Bracket [
+            { PS2_KEY_EQUAL,     PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '+',           0x00,         0x00, },   // Plus +
+            { PS2_KEY_EQUAL,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '=',           0x00,         0x00, },   // Equal =
+            { PS2_KEY_CAPS,      PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ' ',           0x00,         0x00, },   // LOCK
+            { PS2_KEY_ENTER,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x0D,          0x00,         0x00, },   // ENTER/RETURN
+            { PS2_KEY_CLOSE_SQ,  PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '}',           0x00,         0x00, },   // Close Right Brace }
+            { PS2_KEY_CLOSE_SQ,  PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ']',           0x00,         0x00, },   // Close Right Square Bracket ]
+            { PS2_KEY_BACK,      PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '|',           0x00,         0x00, },   // 
+            { PS2_KEY_BACK,      PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '\\',          0x00,         0x00, },   // Back slash maps to Yen
+            { PS2_KEY_BTICK,     PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '`',           0x00,         0x00, },   // Pipe
+            { PS2_KEY_BTICK,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '|',           0x00,         0x00, },   // Back tick `
+            { PS2_KEY_HASH,      PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           '~',           0x00,         0x00, },   // Tilde has no mapping.
+            { PS2_KEY_HASH,      PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '#',           0x00,         0x00, },   // Hash
+            { PS2_KEY_BS,        PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x08,          0x00,         0x00, },   // Backspace
+            { PS2_KEY_ESC,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x1B,          0x00,         0x00, },   // ESCape
+            { PS2_KEY_SCROLL,    PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           ' ',           0x00,         0x00, },   // Not assigned.
+            { PS2_KEY_INSERT,    PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_INS,0x00,         0x00, },   // INSERT
+            { PS2_KEY_HOME,      PS2CTRL_FUNC | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_CLR,0x00,         0x00, },   // CLR
+            { PS2_KEY_HOME,      PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_HOME,0x00,        0x00, },   // HOME
+            { PS2_KEY_DELETE,    PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_DEL,0x00,         0x00, },   // DELETE
+            { PS2_KEY_END,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x18,          0x00,         0x00, },   // END
+            { PS2_KEY_PGUP,      PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x80,          0x00,         0x00, },   // Roll Up.
+            { PS2_KEY_PGDN,      PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x90,          0x00,         0x00, },   // Roll Down
+            { PS2_KEY_UP_ARROW,  PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_UP, 0x00,         0x00, },   // Up Arrow
+            { PS2_KEY_L_ARROW,   PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_LEFT,0x00,        0x00, },   // Left Arrow
+            { PS2_KEY_DN_ARROW,  PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_DOWN,0x00,        0x00, },   // Down Arrow
+            { PS2_KEY_R_ARROW,   PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           MZ5665_KEY_RIGHT,0x00,       0x00, },   // Right Arrow
+            { PS2_KEY_NUM,       PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   // Not assigned.
             // GRPH (Alt Gr)
-            //PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data        MZ5665 Ctrl (Flags to Set).
-        	{ PS2_KEY_0,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xFA,              0x00,                                                                    },   // GRPH+0
-        	{ PS2_KEY_1,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF1,              0x00,                                                                    },   // GRPH+1
-        	{ PS2_KEY_2,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF2,              0x00,                                                                    },   // GRPH+2
-        	{ PS2_KEY_3,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF3,              0x00,                                                                    },   // GRPH+3
-        	{ PS2_KEY_4,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF4,              0x00,                                                                    },   // GRPH+4
-        	{ PS2_KEY_5,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF5,              0x00,                                                                    },   // GRPH+5
-        	{ PS2_KEY_6,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF6,              0x00,                                                                    },   // GRPH+6
-        	{ PS2_KEY_7,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF7,              0x00,                                                                    },   // GRPH+7
-        	{ PS2_KEY_8,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF8,              0x00,                                                                    },   // GRPH+8
-        	{ PS2_KEY_9,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF9,              0x00,                                                                    },   // GRPH+9
-        	{ PS2_KEY_A,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x7F,              0x00,                                                                    },   // GRPH+A
-        	{ PS2_KEY_B,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x84,              0x00,                                                                    },   // GRPH+B
-        	{ PS2_KEY_C,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x82,              0x00,                                                                    },   // GRPH+C
-        	{ PS2_KEY_D,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xEA,              0x00,                                                                    },   // GRPH+D
-        	{ PS2_KEY_E,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xE2,              0x00,                                                                    },   // GRPH+E
-        	{ PS2_KEY_F,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xEB,              0x00,                                                                    },   // GRPH+F
-        	{ PS2_KEY_G,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xEC,              0x00,                                                                    },   // GRPH+G
-        	{ PS2_KEY_H,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xED,              0x00,                                                                    },   // GRPH+H
-        	{ PS2_KEY_I,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xE7,              0x00,                                                                    },   // GRPH+I
-        	{ PS2_KEY_J,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xEE,              0x00,                                                                    },   // GRPH+J
-        	{ PS2_KEY_K,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xEF,              0x00,                                                                    },   // GRPH+K
-        	{ PS2_KEY_L,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x8E,              0x00,                                                                    },   // GRPH+L
-        	{ PS2_KEY_M,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x86,              0x00,                                                                    },   // GRPH+M
-        	{ PS2_KEY_N,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x85,              0x00,                                                                    },   // GRPH+N
-        	{ PS2_KEY_O,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF0,              0x00,                                                                    },   // GRPH+O
-        	{ PS2_KEY_P,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x8D,              0x00,                                                                    },   // GRPH+P
-        	{ PS2_KEY_Q,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xE0,              0x00,                                                                    },   // GRPH+Q
-        	{ PS2_KEY_R,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xE3,              0x00,                                                                    },   // GRPH+R
-        	{ PS2_KEY_S,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xE9,              0x00,                                                                    },   // GRPH+S
-        	{ PS2_KEY_T,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xE4,              0x00,                                                                    },   // GRPH+T
-        	{ PS2_KEY_U,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xE6,              0x00,                                                                    },   // GRPH+U
-        	{ PS2_KEY_V,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x83,              0x00,                                                                    },   // GRPH+V
-        	{ PS2_KEY_W,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xE1,              0x00,                                                                    },   // GRPH+W
-        	{ PS2_KEY_X,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x81,              0x00,                                                                    },   // GRPH+X
-        	{ PS2_KEY_Y,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xE5,              0x00,                                                                    },   // GRPH+Y
-        	{ PS2_KEY_Z,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x80,              0x00,                                                                    },   // GRPH+Z
-            { PS2_KEY_COMMA,     PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x87,              0x00,                                                                    },   // GRPH+,
-            { PS2_KEY_SEMI,      PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x89,              0x00,                                                                    },   // GRPH+;
-            { PS2_KEY_DOT,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x88,              0x00,                                                                    },   // GRPH+.
-            { PS2_KEY_DIV,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xFE,              0x00,                                                                    },   // GRPH+/
-            { PS2_KEY_MINUS,     PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x8C,              0x00,                                                                    },   // GRPH+-
-            { PS2_KEY_APOS,      PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x8A,              0x00,                                                                    },   // GRPH+'
-            { PS2_KEY_OPEN_SQ,   PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xFC,              0x00,                                                                    },   // GRPH+[
-            { PS2_KEY_CLOSE_SQ,  PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xE8,              0x00,                                                                    },   // GRPH+]
-            { PS2_KEY_BACK,      PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x90,              0x00,                                                                    },   // GRPH+Backslash
-            { PS2_KEY_KP0,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x8F,              0x00,                                                                    },   // GRPH+Keypad 0
-            { PS2_KEY_KP1,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x99,              0x00,                                                                    },   // GRPH+Keypad 1
-            { PS2_KEY_KP2,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x92,              0x00,                                                                    },   // GRPH+Keypad 2
-            { PS2_KEY_KP3,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x98,              0x00,                                                                    },   // GRPH+Keypad 3
-            { PS2_KEY_KP4,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x95,              0x00,                                                                    },   // GRPH+Keypad 4
-            { PS2_KEY_KP5,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x96,              0x00,                                                                    },   // GRPH+Keypad 5
-            { PS2_KEY_KP6,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x94,              0x00,                                                                    },   // GRPH+Keypad 6
-            { PS2_KEY_KP7,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x9A,              0x00,                                                                    },   // GRPH+Keypad 7
-            { PS2_KEY_KP8,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x93,              0x00,                                                                    },   // GRPH+Keypad 8
-            { PS2_KEY_KP9,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x97,              0x00,                                                                    },   // GRPH+Keypad 9
-            { PS2_KEY_KP_DOT,    PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x91,              0x00,                                                                    },   // GRPH+Keypad Full stop . 
-            { PS2_KEY_KP_PLUS,   PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x9D,              0x00,                                                                    },   // GRPH+Keypad Plus + 
-            { PS2_KEY_KP_MINUS,  PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x9C,              0x00,                                                                    },   // GRPH+Keypad Minus - 
-            { PS2_KEY_KP_TIMES,  PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x9B,              0x00,                                                                    },   // GRPH+Keypad Times * 
-            { PS2_KEY_KP_DIV,    PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x9E,              0x00,                                                                    },   // GRPH+Keypad Divide /
-            { PS2_KEY_KP_ENTER,  PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x90,              0x00,                                                                    },   // GRPH+Keypad Ebter /
+            //PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data    MZ5665 Ext    MZ5665 Ctrl (Flags to Set).
+            //{ PS2_KEY_0,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xFA,          0x00,         0x00, },   // GRPH+0
+            //{ PS2_KEY_1,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF1,          0x00,         0x00, },   // GRPH+1
+            //{ PS2_KEY_2,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF2,          0x00,         0x00, },   // GRPH+2
+            //{ PS2_KEY_3,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF3,          0x00,         0x00, },   // GRPH+3
+            //{ PS2_KEY_4,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF4,          0x00,         0x00, },   // GRPH+4
+            //{ PS2_KEY_5,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF5,          0x00,         0x00, },   // GRPH+5
+            //{ PS2_KEY_6,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF6,          0x00,         0x00, },   // GRPH+6
+            //{ PS2_KEY_7,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF7,          0x00,         0x00, },   // GRPH+7
+            //{ PS2_KEY_8,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF8,          0x00,         0x00, },   // GRPH+8
+            //{ PS2_KEY_9,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0xF9,          0x00,         0x00, },   // GRPH+9
+            { PS2_KEY_A,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x81,          0x01,         0x00, },   // GRPH+A
+            { PS2_KEY_B,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x82,          0x01,         0x00, },   // GRPH+B
+            { PS2_KEY_C,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x83,          0x01,         0x00, },   // GRPH+C
+            { PS2_KEY_D,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x84,          0x01,         0x00, },   // GRPH+D
+            { PS2_KEY_E,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x85,          0x01,         0x00, },   // GRPH+E
+            { PS2_KEY_F,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x86,          0x01,         0x00, },   // GRPH+F
+            { PS2_KEY_G,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x87,          0x01,         0x00, },   // GRPH+G
+            { PS2_KEY_H,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x88,          0x01,         0x00, },   // GRPH+H
+            { PS2_KEY_I,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x89,          0x01,         0x00, },   // GRPH+I
+            { PS2_KEY_J,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x8A,          0x01,         0x00, },   // GRPH+J
+            { PS2_KEY_K,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x8B,          0x01,         0x00, },   // GRPH+K
+            { PS2_KEY_L,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x8C,          0x01,         0x00, },   // GRPH+L
+            { PS2_KEY_M,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x8D,          0x01,         0x00, },   // GRPH+M
+            { PS2_KEY_N,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x8E,          0x01,         0x00, },   // GRPH+N
+            { PS2_KEY_O,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x8F,          0x01,         0x00, },   // GRPH+O
+            { PS2_KEY_P,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x90,          0x01,         0x00, },   // GRPH+P
+            { PS2_KEY_Q,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x91,          0x01,         0x00, },   // GRPH+Q
+            { PS2_KEY_R,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x92,          0x01,         0x00, },   // GRPH+R
+            { PS2_KEY_S,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x93,          0x01,         0x00, },   // GRPH+S
+            { PS2_KEY_T,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x94,          0x01,         0x00, },   // GRPH+T
+            { PS2_KEY_U,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x95,          0x01,         0x00, },   // GRPH+U
+            { PS2_KEY_V,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x96,          0x01,         0x00, },   // GRPH+V
+            { PS2_KEY_W,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x97,          0x01,         0x00, },   // GRPH+W
+            { PS2_KEY_X,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x98,          0x01,         0x00, },   // GRPH+X
+            { PS2_KEY_Y,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x99,          0x01,         0x00, },   // GRPH+Y
+            { PS2_KEY_Z,         PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x9A,          0x01,         0x00, },   // GRPH+Z
+            { PS2_KEY_DIV,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x9F,          0x01,         0x00, },   // GRPH+/
+            { PS2_KEY_APOS,      PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x9D,          0x01,         0x00, },   // GRPH+'
+            { PS2_KEY_OPEN_SQ,   PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x80,          0x01,         0x00, },   // GRPH+[
+            { PS2_KEY_CLOSE_SQ,  PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x9B,          0x01,         0x00, },   // GRPH+]
+            { PS2_KEY_EQUAL,     PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x9E,          0x01,         0x00, },   // GRPH+=
+            { PS2_KEY_MINUS,     PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x9C,          0x01,         0x00, },   // GRPH+-
+            //{ PS2_KEY_COMMA,     PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x87,          0x00,         0x00, },   // GRPH+,
+            //{ PS2_KEY_SEMI,      PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x89,          0x00,         0x00, },   // GRPH+;
+            //{ PS2_KEY_DOT,       PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x88,          0x00,         0x00, },   // GRPH+.
+            //{ PS2_KEY_BACK,      PS2CTRL_GRAPH,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x90,          0x00,         0x00, },   // GRPH+Backslash
+
+            //{ PS2_KEY_0,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xFA,          0x00,         0x00, },   // GRPH+SHIFT+0
+            //{ PS2_KEY_1,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF1,          0x00,         0x00, },   // GRPH+SHIFT+1
+            //{ PS2_KEY_2,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF2,          0x00,         0x00, },   // GRPH+SHIFT+2
+            //{ PS2_KEY_3,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF3,          0x00,         0x00, },   // GRPH+SHIFT+3
+            //{ PS2_KEY_4,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF4,          0x00,         0x00, },   // GRPH+SHIFT+4
+            //{ PS2_KEY_5,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF5,          0x00,         0x00, },   // GRPH+SHIFT+5
+            //{ PS2_KEY_6,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF6,          0x00,         0x00, },   // GRPH+SHIFT+6
+            //{ PS2_KEY_7,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF7,          0x00,         0x00, },   // GRPH+SHIFT+7
+            //{ PS2_KEY_8,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF8,          0x00,         0x00, },   // GRPH+SHIFT+8
+            //{ PS2_KEY_9,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF9,          0x00,         0x00, },   // GRPH+SHIFT+9
+            { PS2_KEY_A,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xE1,          0x01,         0x00, },   // GRPH+SHIFT+A
+            { PS2_KEY_B,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xE2,          0x01,         0x00, },   // GRPH+SHIFT+B
+            { PS2_KEY_C,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xE3,          0x01,         0x00, },   // GRPH+SHIFT+C
+            { PS2_KEY_D,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xE4,          0x01,         0x00, },   // GRPH+SHIFT+D
+            { PS2_KEY_E,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xE5,          0x01,         0x00, },   // GRPH+SHIFT+E
+            { PS2_KEY_F,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xE6,          0x01,         0x00, },   // GRPH+SHIFT+F
+            { PS2_KEY_G,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xE7,          0x01,         0x00, },   // GRPH+SHIFT+G
+            { PS2_KEY_H,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xE8,          0x01,         0x00, },   // GRPH+SHIFT+H
+            { PS2_KEY_I,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xE9,          0x01,         0x00, },   // GRPH+SHIFT+I
+            { PS2_KEY_J,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xEA,          0x01,         0x00, },   // GRPH+SHIFT+J
+            { PS2_KEY_K,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xEB,          0x01,         0x00, },   // GRPH+SHIFT+K
+            { PS2_KEY_L,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xEC,          0x01,         0x00, },   // GRPH+SHIFT+L
+            { PS2_KEY_M,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xED,          0x01,         0x00, },   // GRPH+SHIFT+M
+            { PS2_KEY_N,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xEE,          0x01,         0x00, },   // GRPH+SHIFT+N
+            { PS2_KEY_O,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xEF,          0x01,         0x00, },   // GRPH+SHIFT+O
+            { PS2_KEY_P,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF0,          0x01,         0x00, },   // GRPH+SHIFT+P
+            { PS2_KEY_Q,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF1,          0x01,         0x00, },   // GRPH+SHIFT+Q
+            { PS2_KEY_R,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF2,          0x01,         0x00, },   // GRPH+SHIFT+R
+            { PS2_KEY_S,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF3,          0x01,         0x00, },   // GRPH+SHIFT+S
+            { PS2_KEY_T,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF4,          0x01,         0x00, },   // GRPH+SHIFT+T
+            { PS2_KEY_U,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF5,          0x01,         0x00, },   // GRPH+SHIFT+U
+            { PS2_KEY_V,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF6,          0x01,         0x00, },   // GRPH+SHIFT+V
+            { PS2_KEY_W,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF7,          0x01,         0x00, },   // GRPH+SHIFT+W
+            { PS2_KEY_X,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF8,          0x01,         0x00, },   // GRPH+SHIFT+X
+            { PS2_KEY_Y,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xF9,          0x01,         0x00, },   // GRPH+SHIFT+Y
+            { PS2_KEY_Z,         PS2CTRL_GRAPH | PS2CTRL_SHIFT,              KEYMAP_STANDARD,             MZ5665_ALL,           0xFA,          0x01,         0x00, },   // GRPH+SHIFT+Z
+
             // KANA (Alt)
-            //PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data        MZ5665 Ctrl (Flags to Set).
-        	{ PS2_KEY_0,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA6,              0x00,                                                                    },   // KANA+SHIFT+0
-        	{ PS2_KEY_0,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDC,              0x00,                                                                    },   // KANA+0
-        	{ PS2_KEY_1,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC7,              0x00,                                                                    },   // KANA+1
-        	{ PS2_KEY_2,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xCC,              0x00,                                                                    },   // KANA+2
-        	{ PS2_KEY_3,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA7,              0x00,                                                                    },   // KANA+SHIFT+3
-        	{ PS2_KEY_3,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB1,              0x00,                                                                    },   // KANA+3
-        	{ PS2_KEY_4,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA9,              0x00,                                                                    },   // KANA+SHIFT+4
-        	{ PS2_KEY_4,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB3,              0x00,                                                                    },   // KANA+4
-        	{ PS2_KEY_5,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAA,              0x00,                                                                    },   // KANA+SHIFT+5
-        	{ PS2_KEY_5,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB4,              0x00,                                                                    },   // KANA+5
-        	{ PS2_KEY_6,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAB,              0x00,                                                                    },   // KANA+SHIFT+6
-        	{ PS2_KEY_6,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB5,              0x00,                                                                    },   // KANA+6
-        	{ PS2_KEY_7,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAC,              0x00,                                                                    },   // KANA+SHIFT+7
-        	{ PS2_KEY_7,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD4,              0x00,                                                                    },   // KANA+7
-        	{ PS2_KEY_8,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAD,              0x00,                                                                    },   // KANA+SHIFT+8
-        	{ PS2_KEY_8,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD5,              0x00,                                                                    },   // KANA+8
-        	{ PS2_KEY_9,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAE,              0x00,                                                                    },   // KANA+SHIFT+9
-        	{ PS2_KEY_9,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD6,              0x00,                                                                    },   // KANA+9
-        	{ PS2_KEY_A,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC1,              0x00,                                                                    },   // KANA+A
-        	{ PS2_KEY_B,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBA,              0x00,                                                                    },   // KANA+B
-        	{ PS2_KEY_C,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBF,              0x00,                                                                    },   // KANA+C
-        	{ PS2_KEY_D,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBC,              0x00,                                                                    },   // KANA+D
-        	{ PS2_KEY_E,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA8,              0x00,                                                                    },   // KANA+SHIFT+E
-        	{ PS2_KEY_E,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB2,              0x00,                                                                    },   // KANA+E
-        	{ PS2_KEY_F,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xCA,              0x00,                                                                    },   // KANA+F
-        	{ PS2_KEY_G,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB7,              0x00,                                                                    },   // KANA+G
-        	{ PS2_KEY_H,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB8,              0x00,                                                                    },   // KANA+H
-        	{ PS2_KEY_I,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC6,              0x00,                                                                    },   // KANA+I
-        	{ PS2_KEY_J,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xCF,              0x00,                                                                    },   // KANA+J
-        	{ PS2_KEY_K,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC9,              0x00,                                                                    },   // KANA+K
-        	{ PS2_KEY_L,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD8,              0x00,                                                                    },   // KANA+L
-        	{ PS2_KEY_M,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD3,              0x00,                                                                    },   // KANA+M
-        	{ PS2_KEY_N,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD0,              0x00,                                                                    },   // KANA+N
-        	{ PS2_KEY_O,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD7,              0x00,                                                                    },   // KANA+O
-        	{ PS2_KEY_P,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBE,              0x00,                                                                    },   // KANA+P
-        	{ PS2_KEY_Q,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC0,              0x00,                                                                    },   // KANA+Q
-        	{ PS2_KEY_R,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBD,              0x00,                                                                    },   // KANA+R
-        	{ PS2_KEY_S,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC4,              0x00,                                                                    },   // KANA+S
-        	{ PS2_KEY_T,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB6,              0x00,                                                                    },   // KANA+T
-        	{ PS2_KEY_U,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC5,              0x00,                                                                    },   // KANA+U
-        	{ PS2_KEY_V,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xCB,              0x00,                                                                    },   // KANA+V
-        	{ PS2_KEY_W,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC3,              0x00,                                                                    },   // KANA+W
-        	{ PS2_KEY_X,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBB,              0x00,                                                                    },   // KANA+X
-        	{ PS2_KEY_Y,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDD,              0x00,                                                                    },   // KANA+Y
-        	{ PS2_KEY_Z,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAF,              0x00,                                                                    },   // KANA+SHIFT+Z
-        	{ PS2_KEY_Z,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC2,              0x00,                                                                    },   // KANA+Z
-            { PS2_KEY_COMMA,     PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA4,              0x00,                                                                    },   // KANA+SHIFT+,
-            { PS2_KEY_COMMA,     PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC8,              0x00,                                                                    },   // KANA+,
-            { PS2_KEY_SEMI,      PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDA,              0x00,                                                                    },   // KANA+;
-            { PS2_KEY_DOT,       PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA1,              0x00,                                                                    },   // KANA+SHIFT+.
-            { PS2_KEY_DOT,       PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD9,              0x00,                                                                    },   // KANA+.
-            { PS2_KEY_DIV,       PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA5,              0x00,                                                                    },   // KANA+SHIFT+/
-            { PS2_KEY_DIV,       PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD2,              0x00,                                                                    },   // KANA+/
-            { PS2_KEY_MINUS,     PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xCE,              0x00,                                                                    },   // KANA+-
-            { PS2_KEY_APOS,      PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDE,              0x00,                                                                    },   // KANA+'
-            { PS2_KEY_OPEN_SQ,   PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA2,              0x00,                                                                    },   // KANA+SHIFT+[
-            { PS2_KEY_OPEN_SQ,   PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDF,              0x00,                                                                    },   // KANA+[
-            { PS2_KEY_CLOSE_SQ,  PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA3,              0x00,                                                                    },   // KANA+SHIFT+]
-            { PS2_KEY_CLOSE_SQ,  PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD1,              0x00,                                                                    },   // KANA+]
-            { PS2_KEY_BACK,      PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDB,              0x00,                                                                    },   // KANA+Backslash
-            { PS2_KEY_BS,        PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0x12,              0x00,                                                                    },   // KANA+SHIFT+Backspace
+            //PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data    MZ5665 Ext    MZ5665 Ctrl (Flags to Set).
+            { PS2_KEY_0,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA6,          0x00,         0x00, },   // KANA+SHIFT+0
+            { PS2_KEY_0,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDC,          0x00,         0x00, },   // KANA+0
+            { PS2_KEY_1,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC7,          0x00,         0x00, },   // KANA+1
+            { PS2_KEY_2,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xCC,          0x00,         0x00, },   // KANA+2
+            { PS2_KEY_3,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA7,          0x00,         0x00, },   // KANA+SHIFT+3
+            { PS2_KEY_3,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB1,          0x00,         0x00, },   // KANA+3
+            { PS2_KEY_4,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA9,          0x00,         0x00, },   // KANA+SHIFT+4
+            { PS2_KEY_4,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB3,          0x00,         0x00, },   // KANA+4
+            { PS2_KEY_5,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAA,          0x00,         0x00, },   // KANA+SHIFT+5
+            { PS2_KEY_5,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB4,          0x00,         0x00, },   // KANA+5
+            { PS2_KEY_6,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAB,          0x00,         0x00, },   // KANA+SHIFT+6
+            { PS2_KEY_6,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB5,          0x00,         0x00, },   // KANA+6
+            { PS2_KEY_7,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAC,          0x00,         0x00, },   // KANA+SHIFT+7
+            { PS2_KEY_7,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD4,          0x00,         0x00, },   // KANA+7
+            { PS2_KEY_8,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAD,          0x00,         0x00, },   // KANA+SHIFT+8
+            { PS2_KEY_8,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD5,          0x00,         0x00, },   // KANA+8
+            { PS2_KEY_9,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAE,          0x00,         0x00, },   // KANA+SHIFT+9
+            { PS2_KEY_9,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD6,          0x00,         0x00, },   // KANA+9
+            { PS2_KEY_A,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC1,          0x00,         0x00, },   // KANA+A
+            { PS2_KEY_B,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBA,          0x00,         0x00, },   // KANA+B
+            { PS2_KEY_C,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBF,          0x00,         0x00, },   // KANA+C
+            { PS2_KEY_D,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBC,          0x00,         0x00, },   // KANA+D
+            { PS2_KEY_E,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA8,          0x00,         0x00, },   // KANA+SHIFT+E
+            { PS2_KEY_E,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB2,          0x00,         0x00, },   // KANA+E
+            { PS2_KEY_F,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xCA,          0x00,         0x00, },   // KANA+F
+            { PS2_KEY_G,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB7,          0x00,         0x00, },   // KANA+G
+            { PS2_KEY_H,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB8,          0x00,         0x00, },   // KANA+H
+            { PS2_KEY_I,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC6,          0x00,         0x00, },   // KANA+I
+            { PS2_KEY_J,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xCF,          0x00,         0x00, },   // KANA+J
+            { PS2_KEY_K,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC9,          0x00,         0x00, },   // KANA+K
+            { PS2_KEY_L,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD8,          0x00,         0x00, },   // KANA+L
+            { PS2_KEY_M,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD3,          0x00,         0x00, },   // KANA+M
+            { PS2_KEY_N,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD0,          0x00,         0x00, },   // KANA+N
+            { PS2_KEY_O,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD7,          0x00,         0x00, },   // KANA+O
+            { PS2_KEY_P,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBE,          0x00,         0x00, },   // KANA+P
+            { PS2_KEY_Q,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC0,          0x00,         0x00, },   // KANA+Q
+            { PS2_KEY_R,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBD,          0x00,         0x00, },   // KANA+R
+            { PS2_KEY_S,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC4,          0x00,         0x00, },   // KANA+S
+            { PS2_KEY_T,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xB6,          0x00,         0x00, },   // KANA+T
+            { PS2_KEY_U,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC5,          0x00,         0x00, },   // KANA+U
+            { PS2_KEY_V,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xCB,          0x00,         0x00, },   // KANA+V
+            { PS2_KEY_W,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC3,          0x00,         0x00, },   // KANA+W
+            { PS2_KEY_X,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xBB,          0x00,         0x00, },   // KANA+X
+            { PS2_KEY_Y,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDD,          0x00,         0x00, },   // KANA+Y
+            { PS2_KEY_Z,         PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xAF,          0x00,         0x00, },   // KANA+SHIFT+Z
+            { PS2_KEY_Z,         PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC2,          0x00,         0x00, },   // KANA+Z
+            { PS2_KEY_COMMA,     PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA4,          0x00,         0x00, },   // KANA+SHIFT+,
+            { PS2_KEY_COMMA,     PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xC8,          0x00,         0x00, },   // KANA+,
+            { PS2_KEY_SEMI,      PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDA,          0x00,         0x00, },   // KANA+;
+            { PS2_KEY_DOT,       PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA1,          0x00,         0x00, },   // KANA+SHIFT+.
+            { PS2_KEY_DOT,       PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD9,          0x00,         0x00, },   // KANA+.
+            { PS2_KEY_DIV,       PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA5,          0x00,         0x00, },   // KANA+SHIFT+/
+            { PS2_KEY_DIV,       PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD2,          0x00,         0x00, },   // KANA+/
+            { PS2_KEY_MINUS,     PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xCE,          0x00,         0x00, },   // KANA+-
+            { PS2_KEY_APOS,      PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDE,          0x00,         0x00, },   // KANA+'
+            { PS2_KEY_OPEN_SQ,   PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA2,          0x00,         0x00, },   // KANA+SHIFT+[
+            { PS2_KEY_OPEN_SQ,   PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDF,          0x00,         0x00, },   // KANA+[
+            { PS2_KEY_CLOSE_SQ,  PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0xA3,          0x00,         0x00, },   // KANA+SHIFT+]
+            { PS2_KEY_CLOSE_SQ,  PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xD1,          0x00,         0x00, },   // KANA+]
+            { PS2_KEY_BACK,      PS2CTRL_KANA,                               KEYMAP_STANDARD,             MZ5665_ALL,           0xDB,          0x00,         0x00, },   // KANA+Backslash
+            { PS2_KEY_BS,        PS2CTRL_KANA | PS2CTRL_SHIFT,               KEYMAP_STANDARD,             MZ5665_ALL,           0x12,          0x00,         0x00, },   // KANA+SHIFT+Backspace
             // Keypad.
-            { PS2_KEY_KP0,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '0',               0x00,                                                                    },   // Keypad 0
-            { PS2_KEY_KP1,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '1',               0x00,                                                                    },   // Keypad 1
-            { PS2_KEY_KP2,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '2',               0x00,                                                                    },   // Keypad 2
-            { PS2_KEY_KP3,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '3',               0x00,                                                                    },   // Keypad 3
-            { PS2_KEY_KP4,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '4',               0x00,                                                                    },   // Keypad 4
-            { PS2_KEY_KP5,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '5',               0x00,                                                                    },   // Keypad 5
-            { PS2_KEY_KP6,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '6',               0x00,                                                                    },   // Keypad 6
-            { PS2_KEY_KP7,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '7',               0x00,                                                                    },   // Keypad 7
-            { PS2_KEY_KP8,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '8',               0x00,                                                                    },   // Keypad 8
-            { PS2_KEY_KP9,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '9',               0x00,                                                                    },   // Keypad 9
-            { PS2_KEY_KP_COMMA,  PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ',',               0x00,                                                                    },   // Keypad Comma , 
-            { PS2_KEY_KP_DOT,    PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '.',               0x00,                                                                    },   // Keypad Full stop . 
-            { PS2_KEY_KP_PLUS,   PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '+',               0x00,                                                                    },   // Keypad Plus + 
-            { PS2_KEY_KP_MINUS,  PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '-',               0x00,                                                                    },   // Keypad Minus - 
-            { PS2_KEY_KP_TIMES,  PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '*',               0x00,                                                                    },   // Keypad Times * 
-            { PS2_KEY_KP_DIV,    PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '/',               0x00,                                                                    },   // Keypad Divide /
-            { PS2_KEY_KP_ENTER,  PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x0D,              0x00,                                                                    },   // Keypad Ebter /
-            //PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data        MZ5665 Ctrl (Flags to Set).
+            { PS2_KEY_KP0,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '0',           0x00,         0x00, },   // Keypad 0
+            { PS2_KEY_KP1,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '1',           0x00,         0x00, },   // Keypad 1
+            { PS2_KEY_KP2,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '2',           0x00,         0x00, },   // Keypad 2
+            { PS2_KEY_KP3,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '3',           0x00,         0x00, },   // Keypad 3
+            { PS2_KEY_KP4,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '4',           0x00,         0x00, },   // Keypad 4
+            { PS2_KEY_KP5,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '5',           0x00,         0x00, },   // Keypad 5
+            { PS2_KEY_KP6,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '6',           0x00,         0x00, },   // Keypad 6
+            { PS2_KEY_KP7,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '7',           0x00,         0x00, },   // Keypad 7
+            { PS2_KEY_KP8,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '8',           0x00,         0x00, },   // Keypad 8
+            { PS2_KEY_KP9,       PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '9',           0x00,         0x00, },   // Keypad 9
+            { PS2_KEY_KP_COMMA,  PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           ',',           0x00,         0x00, },   // Keypad Comma , 
+            { PS2_KEY_KP_DOT,    PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '.',           0x00,         0x00, },   // Keypad Full stop . 
+            { PS2_KEY_KP_PLUS,   PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '+',           0x00,         0x00, },   // Keypad Plus + 
+            { PS2_KEY_KP_MINUS,  PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '-',           0x00,         0x00, },   // Keypad Minus - 
+            { PS2_KEY_KP_TIMES,  PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '*',           0x00,         0x00, },   // Keypad Times * 
+            { PS2_KEY_KP_DIV,    PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           '/',           0x00,         0x00, },   // Keypad Divide /
+            { PS2_KEY_KP_ENTER,  PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x0D,          0x00,         0x00, },   // Keypad Enter /
+            //PS2 Code           PS2 Ctrl (Flags to Match)                   Keyboard Model               Machine               MZ5665 Data    MZ5665 Ext    MZ5665 Ctrl (Flags to Set).
             // Special keys.
-            { PS2_KEY_PRTSCR,    PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   // ARGO KEY
-            { PS2_KEY_PAUSE,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x03,              0x00,                                                                    },   // BREAK KEY
-            { PS2_KEY_L_GUI,     PS2CTRL_FUNC | PS2CTRL_GUI,                 KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   // GRAPH KEY
-          //{ PS2_KEY_L_ALT,     PS2CTRL_FUNC | PS2CTRL_KANA,                KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   // KJ1 Sentence
-          //{ PS2_KEY_R_ALT,     PS2CTRL_FUNC | PS2CTRL_GRAPH,               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   // KJ2 Transform
-            { PS2_KEY_R_GUI,     PS2CTRL_FUNC | PS2CTRL_GUI,                 KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   // KANA KEY
-            { PS2_KEY_MENU,      PS2CTRL_FUNC | PS2CTRL_GUI,                 KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   // Not assigned.
+            { PS2_KEY_PRTSCR,    PS2CTRL_FUNC,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   // ARGO KEY
+            { PS2_KEY_PAUSE,     PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x06,          0x00,         0x00, },   // BREAK KEY
+            { PS2_KEY_PAUSE,     PS2CTRL_SHIFT,                              KEYMAP_STANDARD,             MZ5665_ALL,           0x07,          0x00,         0x00, },   // SHIFT BREAK KEY
+            { PS2_KEY_L_GUI,     PS2CTRL_FUNC | PS2CTRL_GUI,                 KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   //
+          //{ PS2_KEY_L_ALT,     PS2CTRL_FUNC | PS2CTRL_KANA,                KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   // KJ1 Sentence
+          //{ PS2_KEY_R_ALT,     PS2CTRL_FUNC | PS2CTRL_GRAPH,               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   // KJ2 Transform
+            { PS2_KEY_R_GUI,     PS2CTRL_FUNC | PS2CTRL_GUI,                 KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   //
+            { PS2_KEY_MENU,      PS2CTRL_FUNC | PS2CTRL_GUI,                 KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   // Not assigned.
             // Modifiers are last, only being selected if an earlier match isnt made.
-            { PS2_KEY_L_SHIFT,   PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   
-            { PS2_KEY_R_SHIFT,   PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   
-            { PS2_KEY_L_CTRL,    PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   
-            { PS2_KEY_R_CTRL,    PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },   // Map to Control
-            { 0,                 PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,              0x00,                                                                    },
+            { PS2_KEY_L_SHIFT,   PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   
+            { PS2_KEY_R_SHIFT,   PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   
+            { PS2_KEY_L_CTRL,    PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   
+            { PS2_KEY_R_CTRL,    PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },   // Map to Control
+            { 0,                 PS2CTRL_NONE,                               KEYMAP_STANDARD,             MZ5665_ALL,           0x00,          0x00,         0x00, },
         }};
 };
 
