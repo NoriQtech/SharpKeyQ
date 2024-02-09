@@ -25,6 +25,10 @@ SharpKey Multi HID Interface のオリジナルプロジェクトについては
 [JunkQ yard SharpKeyQ](https://junkqyard.blogspot.com/p/sharpkeyq.html)
 
 
+## アップデート
+2024-02-09 MZ-5665モジュールの対応
+2023-11-26 最初のコミット
+
 ## ライセンス
 オリジナルライセンスに基づき、SharpKey Multi HID Interface の設計、ハードウェアおよびソフトウェアは、GNU Public License v3 に基づいてライセンスされています。
 
