@@ -222,7 +222,10 @@ if( digitalRead( PS2_IrqPin ) )
    return;
 #endif
 if( _ps2mode & _TX_MODE )
+  {
+  delayMicroseconds(20);
   send_bit( );
+  }
 else
   {
   static uint32_t prev_ms = 0;
