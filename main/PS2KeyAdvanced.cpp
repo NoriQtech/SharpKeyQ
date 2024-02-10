@@ -223,7 +223,7 @@ if( digitalRead( PS2_IrqPin ) )
 #endif
 if( _ps2mode & _TX_MODE )
   {
-  delayMicroseconds(20);
+  delayMicroseconds(10);
   send_bit( );
   }
 else
